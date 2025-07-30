@@ -521,7 +521,7 @@ async def fast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /fast command - set fast scanning mode (30 seconds)"""
     global scan_mode
     scan_mode = "fast"
-    await update.message.reply_text("�� Режим изменен на БЫСТРЫЙ\n⏱️ Интервал сканирования: 30 секунд")
+    await update.message.reply_text("🐰 Режим изменен на БЫСТРЫЙ\n⏱️ Интервал сканирования: 30 секунд")
     logging.info("Scan mode changed to FAST (30 seconds)")
 
 async def slow_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
