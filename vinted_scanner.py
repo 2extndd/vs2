@@ -568,6 +568,35 @@ async def fast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🐰 FAST mode: 5-7s priority, 10-15s normal")
 
 async def slow_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /slow command - set slow scanning mode (120 seconds)"""
+    global scan_mode
+    scan_mode = "slow"
+    await update.message.reply_text("🐌 Режим изменен на МЕДЛЕННЫЙ\n⏱️ Интервал сканирования: 120 секунд")
+    logging.info("Scan mode changed to SLOW (120 seconds)")
+async def chatinfo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /chatinfo command - chat diagnostics"""
+    try:
+        chat = update.effective_chat
+        bot = context.bot
+        
+        # Get full chat info
+        chat_full = await bot.get_chat(chat.id)
+        
+        info = f"🔍 <b>Диагностика чата</b>\n"
+        info += f"📊 ID: <code>{chat.id}</code>\n"
+        info += f"📝 Название: {chat.title or 'N/A'}\n"
+        info += f"🏷️ Тип: {chat.type}\n"
+        
+        if hasattr(chat_full, 'member_count') and chat_full.member_count:
+            info += f"👥 Участников: <b>{chat_full.member_count}</b>\n"
+        
+        if hasattr(chat_full, 'is_forum'):
+            info += f"🧵 Форум: {'✅ Да' if chat_full.is_forum else '❌ Нет'}\n"
+        
+        await update.message.reply_text(info, parse_mode="HTML")
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка диагностики: {e}")
     global scan_mode
     scan_mode = "slow"
     await update.message.reply_text("🐌 SLOW mode: 15-20s priority, 30-45s normal")
@@ -587,7 +616,7 @@ async def setup_bot():
     application.add_handler(CommandHandler("restart", restart_command))
     application.add_handler(CommandHandler("fast", fast_command))
     application.add_handler(CommandHandler("slow", slow_command))
-    
+    application.add_handler(CommandHandler("chatinfo", chatinfo_command))    
     return application
 
 def main():
