@@ -60,12 +60,9 @@ def load_analyzed_item():
     try:
         with open("vinted_items.txt", "r", errors="ignore") as f:
             for line in f:
-                line = line.strip()
                 if line:
-                    list_analyzed_items.append(line)
-        logging.info(f"📥 Loaded {len(list_analyzed_items)} previously analyzed items")
+                    list_analyzed_items.append(line.rstrip())
     except IOError as e:
-        logging.info("📁 No previous items file found, starting fresh")
         logging.error(e, exc_info=True)
 
 # Save a new analyzed item to prevent repeated alerts
@@ -200,30 +197,6 @@ def send_telegram_message(item_title, item_price, item_url, item_image, item_siz
         logging.error(f"❌ Exception in send_telegram_message: {e}")
         return False
 
-# Send bot status message
-def send_bot_status_message(status_text):
-    """Send a simple text message about bot status"""
-    try:
-        url = f"https://api.telegram.org/bot{Config.telegram_bot_token}/sendMessage"
-        params = {
-            "chat_id": Config.telegram_chat_id,
-            "text": status_text,
-            "parse_mode": "HTML"
-        }
-        
-        response = requests.post(url, data=params, timeout=timeoutconnection)
-        
-        if response.status_code == 200:
-            logging.info(f"✅ Status message sent: {status_text}")
-            return True
-        else:
-            logging.error(f"❌ Failed to send status message: {response.status_code}")
-            return False
-            
-    except Exception as e:
-        logging.error(f"❌ Exception sending status message: {e}")
-        return False
-
 # Filter items by exclude_catalog_ids (ИСПРАВЛЕНО)
 def should_exclude_item(item, exclude_catalog_ids):
     if not exclude_catalog_ids:
@@ -279,24 +252,13 @@ async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /restart command"""
     global bot_running, scanner_thread
     await update.message.reply_text("🔄 Перезапускаю бота...")
-    
-    # Stop current scanner
     bot_running = False
     if scanner_thread:
         scanner_thread.join(timeout=5)
-    
-    # Restart scanner
     bot_running = True
     scanner_thread = threading.Thread(target=scanner_loop, daemon=True)
     scanner_thread.start()
-    
     await update.message.reply_text("✅ Бот перезапущен")
-    
-    # Send status to main chat
-    if Config.telegram_bot_token and Config.telegram_chat_id:
-        items_count = len(list_analyzed_items)
-        status_msg = f"🔄 <b>Бот перезапущен</b>\n📊 Загружено {items_count} ранее проанализированных товаров\n⏰ {datetime.now().strftime('%H:%M:%S')}"
-        send_bot_status_message(status_msg)
 
 def scanner_loop():
     """Main scanner loop that runs in a separate thread"""
@@ -423,12 +385,6 @@ def main():
     load_analyzed_item()
     
     logging.info("Starting Vinted Scanner with Telegram bot...")
-    
-    # Send startup message to Telegram
-    if Config.telegram_bot_token and Config.telegram_chat_id:
-        items_count = len(list_analyzed_items)
-        startup_msg = f"🟢 <b>Бот запущен</b>\n📊 Загружено {items_count} ранее проанализированных товаров\n⏰ {datetime.now().strftime('%H:%M:%S')}"
-        send_bot_status_message(startup_msg)
     
     # Start scanner in separate thread
     scanner_thread = threading.Thread(target=scanner_loop, daemon=True)
