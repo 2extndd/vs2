@@ -30,8 +30,7 @@ class VintedAntiBlock:
         ]
         self.request_count = 0
         self.last_request_time = 0
-        self.session_start = time.time()
-        
+
     def get_random_headers(self):
         return {
             "User-Agent": random.choice(self.user_agents),
@@ -40,57 +39,41 @@ class VintedAntiBlock:
             "Accept-Encoding": "gzip, deflate, br",
             "DNT": "1",
             "Connection": "keep-alive",
-            "Upgrade-Insecure-Requests": "1",
-            "Sec-Fetch-Dest": "empty",
-            "Sec-Fetch-Mode": "cors",
-            "Sec-Fetch-Site": "same-origin",
             "Cache-Control": "no-cache",
             "Pragma": "no-cache"
         }
-    
+
     def smart_delay(self):
-        """Intelligent delay between requests"""
+        """БЫСТРЫЕ задержки между запросами"""
         self.request_count += 1
         current_time = time.time()
         
-        # Base delay: 5-12 seconds (increased for safety)
-        base_delay = random.uniform(5, 12)
+        # БЫСТРО: 1-3 секунды
+        base_delay = random.uniform(1, 3)
         
-        # Progressive delay after many requests
-        if self.request_count % 8 == 0:
-            base_delay += random.uniform(15, 30)  # Extra delay every 8 requests
+        # Каждые 20 запросов - короткий перерыв
+        if self.request_count % 20 == 0:
+            base_delay += random.uniform(5, 10)
             
-        if self.request_count % 30 == 0:
-            base_delay += random.uniform(120, 300)  # Long break every 30 requests
-            logging.info(f"😴 Taking long break after {self.request_count} requests")
-            
-        # Avoid too frequent requests
-        time_since_last = current_time - self.last_request_time
-        if time_since_last < 3:
-            base_delay += random.uniform(3, 8)
-            
-        logging.info(f"🕐 Smart delay: {base_delay:.1f}s (request #{self.request_count})")
+        logging.info(f"🕐 Delay: {base_delay:.1f}s (#{self.request_count})")
         time.sleep(base_delay)
         self.last_request_time = time.time()
-        
+
     def handle_rate_limit(self, response):
-        """Handle rate limiting responses"""
+        """Обработка блокировок"""
         if response.status_code == 429:
-            retry_after = response.headers.get('Retry-After', 600)
-            wait_time = int(retry_after) + random.uniform(120, 300)
+            wait_time = random.uniform(120, 300)
             logging.warning(f"🚫 Rate limited! Waiting {wait_time:.0f}s")
-            add_error(f"Rate limit: waiting {wait_time:.0f}s")
             time.sleep(wait_time)
             return True
         elif response.status_code in [403, 406, 503]:
-            wait_time = random.uniform(600, 1200)  # 10-20 minutes
-            logging.warning(f"🔒 Blocked (HTTP {response.status_code})! Waiting {wait_time:.0f}s")
-            add_error(f"Blocked {response.status_code}: waiting {wait_time:.0f}s")
+            wait_time = random.uniform(180, 360)
+            logging.warning(f"🔒 Blocked! Waiting {wait_time:.0f}s")
             time.sleep(wait_time)
             return True
         return False
 
-# Global anti-block instance
+# Создаем экземпляр anti-block
 anti_block = VintedAntiBlock()
 
 # Override config with environment variables if available (for Railway)
@@ -115,24 +98,8 @@ list_analyzed_items = []
 # Global variables for bot status
 bot_running = True
 scanner_thread = None
-scan_mode = "fast"  # "fast" = 30 seconds, "slow" = 120 seconds
+scan_mode = "fast"  # "fast" = 15 seconds, "slow" = 45 seconds - БЫСТРЕЕ!
 last_errors = []  # Store last errors for status
-
-headers = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:128.0) Gecko/20100101 Firefox/128.0",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/png,image/svg+xml,*/*;q=0.8",
-    "Accept-Language": "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7",
-    "DNT": "1",
-    "Connection": "keep-alive",
-    "Upgrade-Insecure-Requests": "1",
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "cross-site",
-    "Sec-GPC": "1",
-    "Priority": "u=0, i",
-    "Pragma": "no-cache",
-    "Cache-Control": "no-cache",
-}
 
 # Load previously analyzed item hashes to avoid duplicates
 def load_analyzed_item():
@@ -146,7 +113,6 @@ def load_analyzed_item():
     except IOError as e:
         logging.info("📁 No previous items file found, starting fresh")
         logging.error(e, exc_info=True)
-
 
 # Add error to last_errors list
 def add_error(error_text):
@@ -335,41 +301,28 @@ def should_exclude_item(item, exclude_catalog_ids):
     
     return is_excluded
 
-# Telegram bot commands (ТОЛЬКО 4 ОСНОВНЫЕ)
+# Telegram bot commands
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /status command"""
     global bot_running, scan_mode, last_errors
-    status = "�� Бот работает" if bot_running else "🔴 Бот остановлен"
+    status = "🟢 Бот работает" if bot_running else "🔴 Бот остановлен"
     items_count = len(list_analyzed_items)
     
-    # Scan mode info
+    # Scan mode info with NEW faster intervals
     mode_emoji = "🐰" if scan_mode == "fast" else "🐌"
-    mode_interval = "90-150 сек" if scan_mode == "fast" else "240-360 сек"
+    mode_interval = "15 сек" if scan_mode == "fast" else "45 сек"  # БЫСТРЕЕ!
     mode_info = f"\n{mode_emoji} Режим: {scan_mode} (интервал: {mode_interval})"
     
-    # Count errors by type
-    vinted_errors = len([e for e in last_errors if "Vinted" in e])
-    telegram_errors = len([e for e in last_errors if "TG" in e or "Telegram" in e])
-    email_errors = len([e for e in last_errors if "Email" in e])
-    slack_errors = len([e for e in last_errors if "Slack" in e])
-    scanner_errors = len([e for e in last_errors if "Scanner" in e])
+    # Anti-block info
+    anti_block_info = f"\n🛡️ Запросов: {anti_block.request_count}"
+    anti_block_info += f"\n🔄 User-Agents: {len(anti_block.user_agents)}"
     
-    # Error summary
+    # Error info
     error_info = ""
     if last_errors:
-        error_info = f"\n❌ Последние ошибки:"
-        if vinted_errors > 0:
-            error_info += f"\nVinted ({vinted_errors} ошибок)"
-        if telegram_errors > 0:
-            error_info += f"\nTelegram ({telegram_errors} ошибок)"
-        if email_errors > 0:
-            error_info += f"\nEmail ({email_errors} ошибок)"
-        if slack_errors > 0:
-            error_info += f"\nSlack ({slack_errors} ошибок)"
-        if scanner_errors > 0:
-            error_info += f"\nScanner ({scanner_errors} ошибок)"
+        error_info = f"\n❌ Ошибки:\n" + "\n".join(last_errors[-3:])
     
-    response = f"{status}\n📊 Проанализировано товаров: {items_count}{mode_info}{error_info}"
+    response = f"{status}\n📊 Товаров: {items_count}{mode_info}{anti_block_info}{error_info}"
     await update.message.reply_text(response)
 
 async def log_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -379,16 +332,15 @@ async def log_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             lines = f.readlines()
             last_lines = lines[-10:] if len(lines) >= 10 else lines
             log_text = "".join(last_lines)
-            await update.message.reply_text(f"📝 Последние 10 строк лога:\n```\n{log_text}\n```", parse_mode="Markdown")
+            await update.message.reply_text(f"📝 Лог:\n```\n{log_text}\n```", parse_mode="Markdown")
     except Exception as e:
-        await update.message.reply_text(f"❌ Ошибка чтения лога: {e}")
+        await update.message.reply_text(f"❌ Ошибка: {e}")
 
 async def threadid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /threadid command - shows thread ID where message was sent"""
+    """Handle /threadid command"""
     message = update.message
     
     if message.is_topic_message and message.message_thread_id:
-        # Find topic name by thread_id
         topic_name = "Unknown"
         for name, data in Config.topics.items():
             if data.get('thread_id') == message.message_thread_id:
@@ -397,33 +349,31 @@ async def threadid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         response = f"🧵 Thread ID: {message.message_thread_id}\n📍 Топик: {topic_name}"
     else:
-        response = "💬 Сообщение отправлено в основной чат\n🧵 Thread ID: None"
+        response = "💬 Основной чат\n🧵 Thread ID: None"
     
     await update.message.reply_text(response)
 
 async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /restart command"""
     global bot_running, scanner_thread, list_analyzed_items
-    await update.message.reply_text("🔄 Перезапускаю бота...")
+    await update.message.reply_text("�� Перезапуск...")
     
     # Stop current scanner
     bot_running = False
     if scanner_thread:
         scanner_thread.join(timeout=5)
     
-    # Clear analyzed items list (restart fresh)
+    # Clear analyzed items list
     old_count = len(list_analyzed_items)
     list_analyzed_items.clear()
     
-    # Clear the file as well
     try:
         with open("vinted_items.txt", "w") as f:
             f.write("")
-        logging.info(f"🗑️ Cleared {old_count} analyzed items for fresh restart")
+        logging.info(f"🗑️ Cleared {old_count} items")
     except Exception as e:
-        logging.error(f"Error clearing items file: {e}")
+        logging.error(f"Error clearing: {e}")
     
-    # Wait a moment before restarting
     await asyncio.sleep(2)
     
     # Restart scanner
@@ -431,25 +381,17 @@ async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     scanner_thread = threading.Thread(target=scanner_loop, daemon=True)
     scanner_thread.start()
     
-    await update.message.reply_text("✅ Бот перезапущен с очищенным списком товаров")
-    
-    # Send status to main chat
-    if Config.telegram_bot_token and Config.telegram_chat_id:
-        # Calculate potential messages
-        total_topics = len(Config.topics)
-        status_msg = f"🔄 <b>Бот перезапущен</b>\n📊 Загружено 0 ранее проанализированных товаров\n🚀 Готово к отправке сообщений из {total_topics} топиков\n⏰ {datetime.now().strftime('%H:%M:%S')}"
-        send_bot_status_message(status_msg)
+    await update.message.reply_text("✅ Перезапущен!")
 
 async def chatinfo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /chatinfo command - detailed chat diagnostics"""
+    """Handle /chatinfo command"""
     try:
         chat = update.effective_chat
         bot = context.bot
         
-        # Get full chat info from API
         chat_full = await bot.get_chat(chat.id)
         
-        info = f"🔍 <b>Диагностика чата</b>\n"
+        info = f"🔍 <b>Диагностика</b>\n"
         info += f"📊 ID: <code>{chat.id}</code>\n"
         info += f"📝 Название: {chat.title or 'N/A'}\n"
         info += f"🏷️ Тип: {chat.type}\n"
@@ -457,106 +399,70 @@ async def chatinfo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if hasattr(chat_full, 'member_count') and chat_full.member_count:
             info += f"👥 Участников: <b>{chat_full.member_count}</b>\n"
             if chat_full.member_count < 200:
-                info += f"⚠️ <b>ВНИМАНИЕ:</b> Меньше 200 участников!\n"
+                info += f"⚠️ <b>ВНИМАНИЕ:</b> Меньше 200!\n"
         
         if hasattr(chat_full, 'is_forum'):
             info += f"🧵 Форум: {'✅ Да' if chat_full.is_forum else '❌ Нет'}\n"
         
-        if hasattr(chat_full, 'has_visible_history'):
-            info += f"📖 История видна: {'✅ Да' if chat_full.has_visible_history else '❌ Нет'}\n"
-        
-        # Test if we can send to topics
-        info += f"\n🧪 <b>Тест топиков:</b>\n"
-        test_success = 0
-        test_total = 0
-        
-        for name, data in list(Config.topics.items())[:3]:  # Test first 3 topics
-            thread_id = data.get('thread_id')
-            if thread_id:
-                test_total += 1
-                try:
-                    # Try to get chat info for this thread
-                    test_msg = await bot.send_message(
-                        chat_id=chat.id,
-                        text="🧪 Тест топика",
-                        message_thread_id=thread_id
-                    )
-                    await test_msg.delete()  # Clean up immediately
-                    info += f"✅ {name}: Работает\n"
-                    test_success += 1
-                except Exception as e:
-                    info += f"❌ {name}: Ошибка ({str(e)[:30]}...)\n"
-        
-        info += f"\n📊 Результат тестов: {test_success}/{test_total}\n"
-        
-        if test_success == 0 and test_total > 0:
-            info += f"\n⚠️ <b>ПРОБЛЕМА:</b> Ни один топик не работает!\n"
-            info += f"💡 Возможные причины:\n"
-            info += f"• Недостаточно участников в чате\n"
-            info += f"• Thread ID устарели\n"
-            info += f"• Нужно пересоздать форум\n"
-        
         await update.message.reply_text(info, parse_mode="HTML")
         
     except Exception as e:
-        await update.message.reply_text(f"❌ Ошибка диагностики: {e}")
+        await update.message.reply_text(f"❌ Ошибка: {e}")
 
 def scanner_loop():
-    """Main scanner loop that runs in a separate thread"""
+    """БЫСТРЫЙ scanner loop с anti-blocking"""
     global bot_running
     
     while bot_running:
         try:
-            # Initialize session and obtain session cookies from Vinted
+            logging.info("🔄 Новый цикл с защитой от блокировок")
+            
+            # Получаем динамические заголовки
             session = requests.Session()
-            session.post(Config.vinted_url, headers=headers, timeout=timeoutconnection)
+            dynamic_headers = anti_block.get_random_headers()
+            
+            logging.info(f"🔄 User-Agent: {dynamic_headers['User-Agent'][:50]}...")
+            
+            # Запрос для получения cookies
+            session.post(Config.vinted_url, headers=dynamic_headers, timeout=timeoutconnection)
             cookies = session.cookies.get_dict()
             
-            # Loop through each topic defined in Config.py
+            # Умная задержка
+            anti_block.smart_delay()
+            
+            # Проходим по всем топикам
             for topic_name, topic_data in Config.topics.items():
                 if not bot_running:
                     break
                     
-                logging.info(f"Scanning topic: {topic_name}")
+                logging.info(f"🔍 Сканируем: {topic_name}")
                 params = topic_data["query"]
                 exclude_catalog_ids = topic_data.get("exclude_catalog_ids", "")
                 thread_id = topic_data.get("thread_id")
                 
-                # Smart delay before request
-                anti_block.smart_delay()
+                # Новые заголовки для каждого топика
+                topic_headers = anti_block.get_random_headers()
                 
-                # Request items from the Vinted API with anti-blocking headers
-                dynamic_headers = anti_block.get_random_headers()
-                dynamic_headers.update(cookies)
-                
-                try:
-                    response = requests.get(f"{Config.vinted_url}/api/v2/catalog/items", 
-                                          params=params, 
-                                          headers=dynamic_headers,
-                                          timeout=timeoutconnection)
-                    
-                    # Handle rate limiting
-                    if anti_block.handle_rate_limit(response):
-                        continue  # Skip this iteration and try again
-                        
-                except requests.exceptions.RequestException as e:
-                    logging.error(f"❌ Request failed for {topic_name}: {e}")
-                    add_error(f"Request error: {str(e)[:30]}")
-                    continue
+                # Запрос к API с защитой
+                response = requests.get(f"{Config.vinted_url}/api/v2/catalog/items", 
+                                      params=params, cookies=cookies, headers=topic_headers,
+                                      timeout=timeoutconnection)
 
+                # Обработка блокировок
+                if anti_block.handle_rate_limit(response):
+                    continue
+                
                 if response.status_code == 200:
                     data = response.json()
 
                     if data and "items" in data:
-                        logging.info(f"Found {len(data['items'])} items for topic {topic_name}")
-                        # Process each item returned in the response
+                        logging.info(f"Найдено {len(data['items'])} товаров: {topic_name}")
+                        
                         for item in data["items"]:
                             if not bot_running:
                                 break
                                 
-                            # Check if item should be excluded (ИСПРАВЛЕНО)
                             if should_exclude_item(item, exclude_catalog_ids):
-                                logging.info(f"🚫 Item {item['id']} excluded by catalog filter: {item.get('catalog_id')}")
                                 continue
                                 
                             item_id = str(item["id"])
@@ -565,98 +471,86 @@ def scanner_loop():
                             item_price = f'{item["price"]["amount"]} {item["price"]["currency_code"]}'
                             item_image = item["photo"]["full_size_url"]
                             
-                            # Get item size if available
                             item_size = None
                             if "size_title" in item and item["size_title"]:
                                 item_size = item["size_title"]
 
-                            # Check if the item has already been analyzed to prevent duplicates
                             if item_id not in list_analyzed_items:
-                                logging.info(f"🆕 NEW ITEM FOUND: {item_title} - {item_price}")
-                                logging.info(f"📍 Topic: {topic_name}, Thread ID: {thread_id}, Catalog ID: {item.get('catalog_id')}")
+                                logging.info(f"🆕 НОВЫЙ: {item_title} - {item_price}")
 
-                                # Send e-mail notifications if configured
+                                # Email
                                 if Config.smtp_username and Config.smtp_server:
                                     send_email(item_title, item_price, item_url, item_image, item_size)
 
-                                # Send Slack notifications if configured
+                                # Slack
                                 if Config.slack_webhook_url:
                                     send_slack_message(item_title, item_price, item_url, item_image, item_size)
 
-                                # Send Telegram notifications if configured
+                                # Telegram
                                 if Config.telegram_bot_token and Config.telegram_chat_id:
-                                    logging.info(f"🚀 SENDING TO TELEGRAM: topic={topic_name}, thread={thread_id}")
                                     success = send_telegram_message(item_title, item_price, item_url, item_image, item_size, thread_id)
                                     if success:
-                                        logging.info(f"✅ TELEGRAM SUCCESS for {topic_name}")
-                                        # Задержка 1 секунда после отправки в Telegram для избежания бана
-                                        time.sleep(1)
-                                    else:
-                                        logging.error(f"❌ TELEGRAM FAILED for {topic_name}")
+                                        time.sleep(0.5)  # Быстрая задержка
 
-                                # Mark item as analyzed and save it
                                 list_analyzed_items.append(item_id)
                                 save_analyzed_item(item_id)
-                                
-                                logging.info(f"✅ Item processed and saved: {item_title}")
-                            else:
-                                logging.debug(f"⏭️ Item {item_id} already analyzed, skipping")
                     else:
-                        logging.warning(f"No items found for topic {topic_name}")
+                        logging.warning(f"Нет товаров: {topic_name}")
                 else:
-                    logging.error(f"Failed to fetch items for topic {topic_name}: {response.status_code}")
+                    logging.error(f"Ошибка {response.status_code}: {topic_name}")
                     add_error(f"Vinted {response.status_code}: {topic_name}")
+                
+                # Задержка между топиками
+                if bot_running and len(Config.topics) > 1:
+                    delay = random.uniform(0.5, 2)  # Быстро между топиками
+                    time.sleep(delay)
 
-            # Wait before next scan with safer intervals
+            # Быстрые интервалы между циклами
             if bot_running:
                 if scan_mode == "fast":
-                    base_sleep = random.uniform(90, 150)  # Fast mode: 90-150 seconds
-                    logging.info(f"🐰 Fast mode: waiting {base_sleep:.0f}s before next cycle")
-                    time.sleep(base_sleep)
+                    delay = random.uniform(15, 25)  # 15-25 сек (было 30)
+                    logging.info(f"🐰 FAST: ждем {delay:.0f}s")
                 else:
-                    base_sleep = random.uniform(240, 360)  # Slow mode: 240-360 seconds  
-                    logging.info(f"🐌 Slow mode: waiting {base_sleep:.0f}s before next cycle")
-                    time.sleep(base_sleep)
+                    delay = random.uniform(45, 60)  # 45-60 сек (было 120)
+                    logging.info(f"🐌 SLOW: ждем {delay:.0f}s")
+                time.sleep(delay)
                 
         except Exception as e:
-            add_error(f"Scanner: {str(e)[:50]}")
-            logging.error(f"Error in scanner loop: {e}", exc_info=True)
+            add_error(f"Сканнер: {str(e)[:50]}")
+            logging.error(f"Ошибка: {e}", exc_info=True)
             if bot_running:
-                time.sleep(30)  # Wait before retrying
+                time.sleep(30)
 
 def signal_handler(signum, frame):
     """Handle graceful shutdown"""
     global bot_running
-    logging.info("Received shutdown signal, stopping bot...")
+    logging.info("Получен сигнал остановки...")
     bot_running = False
     sys.exit(0)
 
-
 async def fast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /fast command - set fast scanning mode (30 seconds)"""
+    """Handle /fast command"""
     global scan_mode
     scan_mode = "fast"
-    await update.message.reply_text("🐰 Режим изменен на БЫСТРЫЙ\n⏱️ Интервал сканирования: 90-150 секунд\n🛡️ С защитой от блокировок")
-    logging.info("Scan mode changed to FAST (30 seconds)")
+    await update.message.reply_text("🐰 БЫСТРЫЙ режим\n⏱️ 15-25 секунд")
+    logging.info("FAST mode (15-25 seconds)")
 
 async def slow_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /slow command - set slow scanning mode (120 seconds)"""
+    """Handle /slow command"""
     global scan_mode
     scan_mode = "slow"
-    await update.message.reply_text("🐌 Режим изменен на МЕДЛЕННЫЙ\n⏱️ Интервал сканирования: 240-360 секунд\n🛡️ С защитой от блокировок")
-    logging.info("Scan mode changed to SLOW (120 seconds)")
+    await update.message.reply_text("🐌 МЕДЛЕННЫЙ режим\n⏱️ 45-60 секунд")
+    logging.info("SLOW mode (45-60 seconds)")
+
 async def setup_bot():
-    """Setup Telegram bot with commands"""
-    # Create application
+    """Setup Telegram bot"""
     application = Application.builder().token(Config.telegram_bot_token).build()
     
-    # Add essential command handlers only
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("log", log_command))
     application.add_handler(CommandHandler("threadid", threadid_command))
     application.add_handler(CommandHandler("restart", restart_command))
     application.add_handler(CommandHandler("chatinfo", chatinfo_command))
-    
     application.add_handler(CommandHandler("fast", fast_command))
     application.add_handler(CommandHandler("slow", slow_command))
     return application
@@ -664,40 +558,34 @@ async def setup_bot():
 def main():
     global bot_running, scanner_thread
     
-    # Setup signal handlers for graceful shutdown
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
     
-    # Load the list of previously analyzed items
     load_analyzed_item()
     
-    logging.info("Starting Vinted Scanner with Telegram bot...")
+    logging.info("🚀 БЫСТРЫЙ Vinted Scanner с ANTI-BLOCKING!")
+    logging.info(f"🛡️ {len(anti_block.user_agents)} User-Agents готово")
     
-    # Send startup message to Telegram
+    # Startup message
     if Config.telegram_bot_token and Config.telegram_chat_id:
         items_count = len(list_analyzed_items)
         total_topics = len(Config.topics)
-        startup_msg = f"🟢 <b>Бот запущен</b>\n📊 Загружено {items_count} ранее проанализированных товаров\n🚀 Готово к отправке сообщений из {total_topics} топиков\n⏰ {datetime.now().strftime('%H:%M:%S')}"
+        startup_msg = f"🟢 <b>БОТ ЗАПУЩЕН С ЗАЩИТОЙ</b>\n📊 Товаров: {items_count}\n🚀 Топиков: {total_topics}\n🛡️ Anti-block: ON\n⏰ {datetime.now().strftime('%H:%M:%S')}"
         send_bot_status_message(startup_msg)
     
-    # Start scanner in separate thread
+    # Start scanner
     scanner_thread = threading.Thread(target=scanner_loop, daemon=True)
     scanner_thread.start()
     
-    # Start Telegram bot if configured (only for commands, not for notifications)
+    # Start bot
     if Config.telegram_bot_token and Config.telegram_chat_id:
         try:
-            import asyncio
-            
             async def run_bot():
                 application = await setup_bot()
                 await application.initialize()
                 await application.start()
-                
-                # Start polling with drop_pending_updates=True to avoid conflicts
                 await application.updater.start_polling(drop_pending_updates=True)
                 
-                # Keep the bot running
                 while bot_running:
                     await asyncio.sleep(1)
                     
@@ -708,22 +596,20 @@ def main():
             asyncio.run(run_bot())
             
         except KeyboardInterrupt:
-            logging.info("Bot stopped by user")
+            logging.info("Остановлен пользователем")
         except Exception as e:
-            logging.error(f"Error running Telegram bot: {e}", exc_info=True)
-            # If bot fails, continue with just scanner
+            logging.error(f"Ошибка бота: {e}", exc_info=True)
             try:
                 while bot_running:
                     time.sleep(1)
             except KeyboardInterrupt:
-                logging.info("Scanner stopped by user")
+                logging.info("Сканнер остановлен")
     else:
-        # If no Telegram bot, just run scanner
         try:
             while bot_running:
                 time.sleep(1)
         except KeyboardInterrupt:
-            logging.info("Scanner stopped by user")
+            logging.info("Сканнер остановлен")
 
 if __name__ == "__main__":
     main()
