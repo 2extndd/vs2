@@ -140,85 +140,63 @@ def send_telegram_message(item_title, item_price, item_url, item_image, item_siz
     try:
         # Format message content
         size_text = f"\n👕 Размер: {item_size}" if item_size else ""
-        message = f"<b>{item_title}</b>\n🏷️ {item_price}{size_text}\n🔗 {item_url}"
+        
+        # Add topic info to message if thread_id is used
+        topic_info = ""
+        if thread_id:
+            # Find topic name by thread_id
+            topic_name = "Unknown"
+            for name, data in Config.topics.items():
+                if data.get('thread_id') == thread_id:
+                    topic_name = name
+                    break
+            topic_info = f"\n🏷️ Топик: {topic_name}"
+        
+        message = f"<b>{item_title}</b>\n🏷️ {item_price}{size_text}{topic_info}\n🔗 {item_url}"
 
-        # Send photo with caption using direct HTTP request to avoid bot conflicts
-        params = {
+        # First try: Send to topic if thread_id provided
+        if thread_id:
+            params_topic = {
+                "chat_id": Config.telegram_chat_id,
+                "photo": item_image,
+                "caption": message,
+                "parse_mode": "HTML",
+                "message_thread_id": thread_id
+            }
+            
+            url = f"https://api.telegram.org/bot{Config.telegram_bot_token}/sendPhoto"
+            logging.info(f"🎯 Trying to send to topic {thread_id}")
+            
+            response = requests.post(url, data=params_topic, timeout=timeoutconnection)
+            
+            if response.status_code == 200:
+                logging.info(f"✅ SUCCESS: Sent to topic {thread_id}")
+                return True
+            else:
+                logging.warning(f"❌ FAILED to send to topic {thread_id}: {response.status_code} - {response.text}")
+        
+        # Fallback: Send to main chat
+        params_main = {
             "chat_id": Config.telegram_chat_id,
             "photo": item_image,
-            "caption": message,
+            "caption": message + "\n⚠️ Отправлено в основной чат",
             "parse_mode": "HTML",
         }
         
-        # Add thread_id if provided
-        if thread_id:
-            params["message_thread_id"] = thread_id
-            logging.info(f"Attempting to send to chat {Config.telegram_chat_id}, thread_id: {thread_id}")
-        else:
-            logging.info(f"Sending to main chat {Config.telegram_chat_id} (no thread)")
-
         url = f"https://api.telegram.org/bot{Config.telegram_bot_token}/sendPhoto"
+        logging.info(f"🔄 Sending to main chat as fallback")
         
-        # Log the exact request being made
-        logging.info(f"Telegram API URL: {url}")
-        logging.info(f"Request params: chat_id={params['chat_id']}, thread_id={params.get('message_thread_id', 'None')}")
+        response = requests.post(url, data=params_main, timeout=timeoutconnection)
         
-        response = requests.post(url, data=params, timeout=timeoutconnection)
-        
-        # Log full response for debugging
-        logging.info(f"Telegram API response: Status {response.status_code}, Body: {response.text}")
-        
-        if response.status_code != 200:
-            logging.error(f"Telegram notification failed. Status code: {response.status_code}, Response: {response.text}")
-            
-            # Parse response to get error details
-            try:
-                error_data = response.json()
-                error_code = error_data.get('error_code')
-                description = error_data.get('description', '')
-                
-                logging.error(f"Telegram error details: Code {error_code}, Description: {description}")
-                
-                # Handle specific errors
-                if error_code == 400 and "message thread not found" in description.lower():
-                    logging.warning(f"Thread {thread_id} not found in chat {Config.telegram_chat_id}")
-                    if thread_id:
-                        logging.warning("Attempting fallback to main chat...")
-                        params_fallback = params.copy()
-                        del params_fallback["message_thread_id"]
-                        
-                        fallback_response = requests.post(url, data=params_fallback, timeout=timeoutconnection)
-                        if fallback_response.status_code == 200:
-                            logging.info(f"✅ Telegram notification sent to main chat (fallback from thread {thread_id})")
-                            return True
-                        else:
-                            logging.error(f"❌ Fallback notification also failed: {fallback_response.status_code}, {fallback_response.text}")
-                            return False
-                            
-                elif error_code == 403:
-                    logging.error(f"❌ Bot doesn't have permission to send messages to chat {Config.telegram_chat_id}")
-                    return False
-                    
-                elif error_code == 400 and "chat not found" in description.lower():
-                    logging.error(f"❌ Chat {Config.telegram_chat_id} not found")
-                    return False
-                    
-            except json.JSONDecodeError:
-                logging.error("Could not parse Telegram error response as JSON")
-                
-            return False
-        else:
-            if thread_id:
-                logging.info(f"✅ Telegram notification sent to chat {Config.telegram_chat_id}, thread: {thread_id}")
-            else:
-                logging.info(f"✅ Telegram notification sent to main chat {Config.telegram_chat_id}")
+        if response.status_code == 200:
+            logging.info(f"✅ SUCCESS: Sent to main chat")
             return True
+        else:
+            logging.error(f"❌ FAILED to send to main chat: {response.status_code} - {response.text}")
+            return False
 
-    except requests.exceptions.RequestException as e:
-        logging.error(f"❌ Network error sending Telegram message: {e}")
-        return False
     except Exception as e:
-        logging.error(f"❌ Unexpected error sending Telegram message: {e}")
+        logging.error(f"❌ Exception in send_telegram_message: {e}")
         return False
 
 # Filter items by exclude_catalog_ids
@@ -351,6 +329,53 @@ async def config_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(config_info)
 
+async def check_topics_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /checktopics command - check if topics exist"""
+    await update.message.reply_text("🔍 Проверяю доступность топиков...")
+    
+    try:
+        bot = Bot(token=Config.telegram_bot_token)
+        
+        # Get chat info
+        chat = await bot.get_chat(chat_id=Config.telegram_chat_id)
+        
+        info = f"📊 Информация о чате:\n"
+        info += f"• ID: {chat.id}\n"
+        info += f"• Тип: {chat.type}\n"
+        info += f"• Название: {chat.title or 'Без названия'}\n"
+        
+        # Check if it's a forum
+        is_forum = getattr(chat, 'is_forum', False)
+        info += f"• Форум: {'✅ Да' if is_forum else '❌ Нет'}\n"
+        
+        if not is_forum:
+            info += "\n⚠️ ПРОБЛЕМА: Чат не настроен как форум!\n"
+            info += "Для использования топиков нужно:\n"
+            info += "1. Зайти в настройки группы\n"
+            info += "2. Включить 'Topics' (Топики)\n"
+            info += "3. Создать нужные топики\n"
+        
+        await update.message.reply_text(info)
+        
+        # Test a simple message without thread
+        test_text = "🧪 Тест связи с чатом"
+        
+        url = f"https://api.telegram.org/bot{Config.telegram_bot_token}/sendMessage"
+        params = {
+            "chat_id": Config.telegram_chat_id,
+            "text": test_text
+        }
+        
+        response = requests.post(url, data=params, timeout=30)
+        
+        if response.status_code == 200:
+            await update.message.reply_text("✅ Связь с чатом работает")
+        else:
+            await update.message.reply_text(f"❌ Проблема с отправкой: {response.status_code}")
+            
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {e}")
+
 async def debug_topics_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /debug command - test all topics"""
     await update.message.reply_text("🔍 Тестирую все топики из конфигурации...")
@@ -443,7 +468,8 @@ def scanner_loop():
 
                             # Check if the item has already been analyzed to prevent duplicates
                             if item_id not in list_analyzed_items:
-                                logging.info(f"Processing new item: {item_title} - {item_price}")
+                                logging.info(f"🆕 NEW ITEM FOUND: {item_title} - {item_price}")
+                                logging.info(f"📍 Topic: {topic_name}, Thread ID: {thread_id}")
 
                                 # Send e-mail notifications if configured
                                 if Config.smtp_username and Config.smtp_server:
@@ -455,16 +481,20 @@ def scanner_loop():
 
                                 # Send Telegram notifications if configured
                                 if Config.telegram_bot_token and Config.telegram_chat_id:
-                                    # Use thread_id from topic configuration
-                                    send_telegram_message(item_title, item_price, item_url, item_image, item_size, thread_id)
+                                    logging.info(f"🚀 SENDING TO TELEGRAM: topic={topic_name}, thread={thread_id}")
+                                    success = send_telegram_message(item_title, item_price, item_url, item_image, item_size, thread_id)
+                                    if success:
+                                        logging.info(f"✅ TELEGRAM SUCCESS for {topic_name}")
+                                    else:
+                                        logging.error(f"❌ TELEGRAM FAILED for {topic_name}")
 
                                 # Mark item as analyzed and save it
                                 list_analyzed_items.append(item_id)
                                 save_analyzed_item(item_id)
                                 
-                                logging.info(f"New item processed: {item_title} - {item_price}")
+                                logging.info(f"✅ Item processed and saved: {item_title}")
                             else:
-                                logging.debug(f"Item {item_id} already analyzed, skipping")
+                                logging.debug(f"⏭️ Item {item_id} already analyzed, skipping")
                     else:
                         logging.warning(f"No items found for topic {topic_name}")
                 else:
@@ -498,6 +528,7 @@ async def setup_bot():
     application.add_handler(CommandHandler("chatinfo", chat_info_command))
     application.add_handler(CommandHandler("test", test_command))
     application.add_handler(CommandHandler("testmain", test_main_command))
+    application.add_handler(CommandHandler("checktopics", check_topics_command))
     application.add_handler(CommandHandler("config", config_command))
     application.add_handler(CommandHandler("debug", debug_topics_command))
     application.add_handler(CommandHandler("restart", restart_command))
