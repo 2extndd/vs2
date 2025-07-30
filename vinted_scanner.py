@@ -248,7 +248,17 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global bot_running
     status = "🟢 Бот работает" if bot_running else "🔴 Бот остановлен"
     items_count = len(list_analyzed_items)
-    await update.message.reply_text(f"{status}\n📊 Проанализировано товаров: {items_count}")
+    
+    # Get chat info for diagnostics
+    chat = update.effective_chat
+    chat_info = f"\n💬 Чат: {chat.type}"
+    if hasattr(chat, 'member_count') and chat.member_count:
+        chat_info += f"\n👥 Участников: {chat.member_count}"
+    if hasattr(chat, 'is_forum') and chat.is_forum:
+        chat_info += f"\n🧵 Форум: {'Да' if chat.is_forum else 'Нет'}"
+    
+    response = f"{status}\n📊 Проанализировано товаров: {items_count}{chat_info}"
+    await update.message.reply_text(response)
 
 async def log_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /log command"""
@@ -317,6 +327,67 @@ async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         total_topics = len(Config.topics)
         status_msg = f"🔄 <b>Бот перезапущен</b>\n📊 Загружено 0 ранее проанализированных товаров\n🚀 Готово к отправке сообщений из {total_topics} топиков\n⏰ {datetime.now().strftime('%H:%M:%S')}"
         send_bot_status_message(status_msg)
+
+async def chatinfo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /chatinfo command - detailed chat diagnostics"""
+    try:
+        chat = update.effective_chat
+        bot = context.bot
+        
+        # Get full chat info from API
+        chat_full = await bot.get_chat(chat.id)
+        
+        info = f"🔍 <b>Диагностика чата</b>\n"
+        info += f"📊 ID: <code>{chat.id}</code>\n"
+        info += f"📝 Название: {chat.title or 'N/A'}\n"
+        info += f"🏷️ Тип: {chat.type}\n"
+        
+        if hasattr(chat_full, 'member_count') and chat_full.member_count:
+            info += f"👥 Участников: <b>{chat_full.member_count}</b>\n"
+            if chat_full.member_count < 200:
+                info += f"⚠️ <b>ВНИМАНИЕ:</b> Меньше 200 участников!\n"
+        
+        if hasattr(chat_full, 'is_forum'):
+            info += f"🧵 Форум: {'✅ Да' if chat_full.is_forum else '❌ Нет'}\n"
+        
+        if hasattr(chat_full, 'has_visible_history'):
+            info += f"📖 История видна: {'✅ Да' if chat_full.has_visible_history else '❌ Нет'}\n"
+        
+        # Test if we can send to topics
+        info += f"\n🧪 <b>Тест топиков:</b>\n"
+        test_success = 0
+        test_total = 0
+        
+        for name, data in list(Config.topics.items())[:3]:  # Test first 3 topics
+            thread_id = data.get('thread_id')
+            if thread_id:
+                test_total += 1
+                try:
+                    # Try to get chat info for this thread
+                    test_msg = await bot.send_message(
+                        chat_id=chat.id,
+                        text="🧪 Тест топика",
+                        message_thread_id=thread_id
+                    )
+                    await test_msg.delete()  # Clean up immediately
+                    info += f"✅ {name}: Работает\n"
+                    test_success += 1
+                except Exception as e:
+                    info += f"❌ {name}: Ошибка ({str(e)[:30]}...)\n"
+        
+        info += f"\n📊 Результат тестов: {test_success}/{test_total}\n"
+        
+        if test_success == 0 and test_total > 0:
+            info += f"\n⚠️ <b>ПРОБЛЕМА:</b> Ни один топик не работает!\n"
+            info += f"💡 Возможные причины:\n"
+            info += f"• Недостаточно участников в чате\n"
+            info += f"• Thread ID устарели\n"
+            info += f"• Нужно пересоздать форум\n"
+        
+        await update.message.reply_text(info, parse_mode="HTML")
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка диагностики: {e}")
 
 def scanner_loop():
     """Main scanner loop that runs in a separate thread"""
@@ -426,11 +497,12 @@ async def setup_bot():
     # Create application
     application = Application.builder().token(Config.telegram_bot_token).build()
     
-    # Add ONLY 4 command handlers
+    # Add command handlers
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("log", log_command))
     application.add_handler(CommandHandler("threadid", threadid_command))
     application.add_handler(CommandHandler("restart", restart_command))
+    application.add_handler(CommandHandler("chatinfo", chatinfo_command))
     
     return application
 
