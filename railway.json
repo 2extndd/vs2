@@ -7,6 +7,6 @@
     "numReplicas": 1,
     "sleepApplication": false,
     "restartPolicyType": "ON_FAILURE",
-    "startCommand": "python vinted_scanner.py"
+    "startCommand": ". /opt/venv/bin/activate && python start.py"
   }
 }
