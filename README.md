@@ -98,6 +98,13 @@ Each topic has the following structure:
 2. Connect your GitHub repository: `https://github.com/2extndd/vs2`
 3. Railway will automatically detect the Python project and deploy using the `Procfile`
 
+**Configuration:**
+The bot is pre-configured with Telegram credentials. If you need to change them, you can:
+1. Edit the `Config.py` file in your repository, or
+2. Set environment variables in Railway (recommended for production):
+   - `TELEGRAM_BOT_TOKEN` - Your Telegram bot token
+   - `TELEGRAM_CHAT_ID` - Your Telegram chat ID
+
 ### Local Deployment
 
 ```bash

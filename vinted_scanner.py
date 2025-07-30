@@ -16,6 +16,12 @@ from logging.handlers import RotatingFileHandler
 from telegram import Update, Bot
 from telegram.ext import Application, CommandHandler, ContextTypes
 
+# Override config with environment variables if available (for Railway)
+if os.getenv('TELEGRAM_BOT_TOKEN'):
+    Config.telegram_bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
+if os.getenv('TELEGRAM_CHAT_ID'):
+    Config.telegram_chat_id = os.getenv('TELEGRAM_CHAT_ID')
+
 
 # Configure a rotating file handler to manage log files
 handler = RotatingFileHandler("vinted_scanner.log", maxBytes=5000000, backupCount=5)
