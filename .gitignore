@@ -116,4 +116,3 @@ dmypy.json
 # Project specific
 vinted_items.txt
 vinted_scanner.log*
-Config.py
