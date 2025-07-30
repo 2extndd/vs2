@@ -464,6 +464,81 @@ async def log_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка чтения: {str(e)[:100]}")
 
+
+async def threadid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /threadid command - показывает ID топика и принудительно обновляет товары"""
+    message = update.message
+    
+    if message.is_topic_message and message.message_thread_id:
+        thread_id = message.message_thread_id
+        
+        # Find topic by thread_id
+        topic_name = "Unknown"
+        topic_data = None
+        for name, data in Config.topics.items():
+            if data.get('thread_id') == thread_id:
+                topic_name = name
+                topic_data = data
+                break
+        
+        await update.message.reply_text(f"🧵 Thread ID: {thread_id}\n📍 Топик: {topic_name}\n🔄 Принудительное обновление...")
+        
+        # ПРИНУДИТЕЛЬНОЕ ОБНОВЛЕНИЕ для данного топика
+        if topic_data:
+            try:
+                session = requests.Session()
+                session.post(Config.vinted_url, headers=headers, timeout=timeoutconnection)
+                cookies = session.cookies.get_dict()
+                
+                params = topic_data["query"]
+                exclude_catalog_ids = topic_data.get("exclude_catalog_ids", "")
+                
+                response = requests.get(f"{Config.vinted_url}/api/v2/catalog/items", 
+                                      params=params, cookies=cookies, headers=headers)
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    if data and "items" in data:
+                        new_items = 0
+                        for item in data["items"]:
+                            if not should_exclude_item(item, exclude_catalog_ids):
+                                item_id = str(item["id"])
+                                
+                                # ПРИНУДИТЕЛЬНО убираем из списка для повторной отправки
+                                if item_id in list_analyzed_items:
+                                    list_analyzed_items.remove(item_id)
+                                
+                                # Отправляем как новый товар
+                                item_title = item["title"]
+                                item_url = item["url"]
+                                item_price = f'{item["price"]["amount"]} {item["price"]["currency_code"]}'
+                                item_image = item["photo"]["full_size_url"]
+                                item_size = item.get("size_title")
+                                
+                                # Отправляем в Telegram
+                                if Config.telegram_bot_token and Config.telegram_chat_id:
+                                    success = send_telegram_message(item_title, item_price, item_url, item_image, item_size, thread_id)
+                                    if success:
+                                        new_items += 1
+                                        time.sleep(1)  # Пауза между сообщениями
+                                
+                                # Сохраняем как проанализированный
+                                list_analyzed_items.append(item_id)
+                                save_analyzed_item(item_id)
+                        
+                        await update.message.reply_text(f"✅ Обновлено! Отправлено {new_items} товаров для топика {topic_name}")
+                    else:
+                        await update.message.reply_text(f"❌ Нет товаров в топике {topic_name}")
+                else:
+                    await update.message.reply_text(f"❌ Ошибка API: {response.status_code}")
+                    
+            except Exception as e:
+                await update.message.reply_text(f"❌ Ошибка обновления: {str(e)[:100]}")
+                
+    else:
+        response = "💬 Сообщение в основном чате\n🧵 Thread ID: None\n❌ Команда работает только в топиках!"
+        await update.message.reply_text(response)
+
 async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global bot_running, scanner_thread, list_analyzed_items
     await update.message.reply_text("🔄 Restarting...")
@@ -508,6 +583,7 @@ async def setup_bot():
     
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("log", log_command))
+    application.add_handler(CommandHandler("threadid", threadid_command))
     application.add_handler(CommandHandler("restart", restart_command))
     application.add_handler(CommandHandler("fast", fast_command))
     application.add_handler(CommandHandler("slow", slow_command))
