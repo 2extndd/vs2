@@ -43,7 +43,7 @@ scanner_thread = None
 headers = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:128.0) Gecko/20100101 Firefox/128.0",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/png,image/svg+xml,*/*;q=0.8",
-    "Accept-Language": "it-IT,it;q=0.8,en-US;q=0.5,en;q=0.3",
+    "Accept-Language": "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7",
     "DNT": "1",
     "Connection": "keep-alive",
     "Upgrade-Insecure-Requests": "1",
@@ -332,6 +332,25 @@ async def test_main_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text("✅ Тест отправлен в основной чат")
 
+async def config_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /config command - show current configuration"""
+    config_info = "⚙️ Текущая конфигурация:\n\n"
+    config_info += f"🌐 Vinted URL: {Config.vinted_url}\n"
+    config_info += f"💬 Chat ID: {Config.telegram_chat_id}\n"
+    config_info += f"🧵 Топиков настроено: {len(Config.topics)}\n\n"
+    
+    config_info += "📝 Топики:\n"
+    for topic_name, topic_data in list(Config.topics.items())[:5]:  # Show first 5
+        thread_id = topic_data.get('thread_id')
+        config_info += f"• {topic_name}: thread {thread_id}\n"
+    
+    if len(Config.topics) > 5:
+        config_info += f"... и еще {len(Config.topics) - 5} топиков\n"
+    
+    config_info += f"\n🔄 Интервал сканирования: 60 секунд"
+    
+    await update.message.reply_text(config_info)
+
 async def debug_topics_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /debug command - test all topics"""
     await update.message.reply_text("🔍 Тестирую все топики из конфигурации...")
@@ -436,8 +455,8 @@ def scanner_loop():
 
                                 # Send Telegram notifications if configured
                                 if Config.telegram_bot_token and Config.telegram_chat_id:
-                                    # Temporarily disable thread_id to send to main chat
-                                    send_telegram_message(item_title, item_price, item_url, item_image, item_size, None)
+                                    # Use thread_id from topic configuration
+                                    send_telegram_message(item_title, item_price, item_url, item_image, item_size, thread_id)
 
                                 # Mark item as analyzed and save it
                                 list_analyzed_items.append(item_id)
@@ -479,6 +498,7 @@ async def setup_bot():
     application.add_handler(CommandHandler("chatinfo", chat_info_command))
     application.add_handler(CommandHandler("test", test_command))
     application.add_handler(CommandHandler("testmain", test_main_command))
+    application.add_handler(CommandHandler("config", config_command))
     application.add_handler(CommandHandler("debug", debug_topics_command))
     application.add_handler(CommandHandler("restart", restart_command))
     

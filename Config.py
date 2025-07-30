@@ -12,7 +12,7 @@ telegram_bot_token = "8103604647:AAFoZVtAQxg5prugi_u2-YAkXFnf3WRTM-Q"
 telegram_chat_id = "-1002721134127"
 
 # Vinted URL: change the TLD according to your country (.fr, .es, etc.)
-vinted_url = "https://www.vinted.it"
+vinted_url = "https://www.vinted.de"
 
 # Список топиков и параметров для поиска
 topics = {
