@@ -138,13 +138,11 @@ def send_slack_message(item_title, item_price, item_url, item_image, item_size=N
 # Send a Telegram message with photo as attachment when a new item is found
 def send_telegram_message(item_title, item_price, item_url, item_image, item_size=None, thread_id=None):
     try:
-        bot = Bot(token=Config.telegram_bot_token)
-        
         # Format message content
         size_text = f"\n👕 Размер: {item_size}" if item_size else ""
         message = f"<b>{item_title}</b>\n🏷️ {item_price}{size_text}\n🔗 {item_url}"
 
-        # Send photo with caption
+        # Send photo with caption using direct HTTP request to avoid bot conflicts
         params = {
             "chat_id": Config.telegram_chat_id,
             "photo": item_image,
@@ -162,7 +160,7 @@ def send_telegram_message(item_title, item_price, item_url, item_image, item_siz
         if response.status_code != 200:
             logging.error(f"Telegram notification failed. Status code: {response.status_code}, Response: {response.text}")
         else:
-            logging.info("Telegram notification sent")
+            logging.info(f"Telegram notification sent to chat {Config.telegram_chat_id}, thread: {thread_id}")
 
     except requests.exceptions.RequestException as e:
         logging.error(f"Error sending Telegram message: {e}")
@@ -231,6 +229,7 @@ def scanner_loop():
                 if not bot_running:
                     break
                     
+                logging.info(f"Scanning topic: {topic_name}")
                 params = topic_data["query"]
                 exclude_catalog_ids = topic_data.get("exclude_catalog_ids", "")
                 thread_id = topic_data.get("thread_id")
@@ -243,6 +242,7 @@ def scanner_loop():
                     data = response.json()
 
                     if data and "items" in data:
+                        logging.info(f"Found {len(data['items'])} items for topic {topic_name}")
                         # Process each item returned in the response
                         for item in data["items"]:
                             if not bot_running:
@@ -250,6 +250,7 @@ def scanner_loop():
                                 
                             # Check if item should be excluded
                             if should_exclude_item(item, exclude_catalog_ids):
+                                logging.debug(f"Item {item['id']} excluded by catalog filter")
                                 continue
                                 
                             item_id = str(item["id"])
@@ -265,6 +266,7 @@ def scanner_loop():
 
                             # Check if the item has already been analyzed to prevent duplicates
                             if item_id not in list_analyzed_items:
+                                logging.info(f"Processing new item: {item_title} - {item_price}")
 
                                 # Send e-mail notifications if configured
                                 if Config.smtp_username and Config.smtp_server:
@@ -282,7 +284,13 @@ def scanner_loop():
                                 list_analyzed_items.append(item_id)
                                 save_analyzed_item(item_id)
                                 
-                                logging.info(f"New item found: {item_title} - {item_price}")
+                                logging.info(f"New item processed: {item_title} - {item_price}")
+                            else:
+                                logging.debug(f"Item {item_id} already analyzed, skipping")
+                    else:
+                        logging.warning(f"No items found for topic {topic_name}")
+                else:
+                    logging.error(f"Failed to fetch items for topic {topic_name}: {response.status_code}")
 
             # Wait before next scan (60 seconds)
             if bot_running:
@@ -329,7 +337,7 @@ def main():
     scanner_thread = threading.Thread(target=scanner_loop, daemon=True)
     scanner_thread.start()
     
-    # Start Telegram bot if configured
+    # Start Telegram bot if configured (only for commands, not for notifications)
     if Config.telegram_bot_token and Config.telegram_chat_id:
         try:
             import asyncio
@@ -338,7 +346,9 @@ def main():
                 application = await setup_bot()
                 await application.initialize()
                 await application.start()
-                await application.updater.start_polling()
+                
+                # Start polling with drop_pending_updates=True to avoid conflicts
+                await application.updater.start_polling(drop_pending_updates=True)
                 
                 # Keep the bot running
                 while bot_running:
@@ -354,6 +364,12 @@ def main():
             logging.info("Bot stopped by user")
         except Exception as e:
             logging.error(f"Error running Telegram bot: {e}", exc_info=True)
+            # If bot fails, continue with just scanner
+            try:
+                while bot_running:
+                    time.sleep(1)
+            except KeyboardInterrupt:
+                logging.info("Scanner stopped by user")
     else:
         # If no Telegram bot, just run scanner
         try:
