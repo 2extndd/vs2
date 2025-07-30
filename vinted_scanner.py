@@ -10,6 +10,7 @@ import email.utils
 import os
 import signal
 import threading
+import re
 from datetime import datetime
 from email.message import EmailMessage
 from logging.handlers import RotatingFileHandler
@@ -229,16 +230,66 @@ async def log_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Ошибка чтения лога: {e}")
 
 async def threadid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /threadid command"""
-    thread_info = "🧵 Configured Thread IDs:\n"
-    for topic_name, topic_data in Config.topics.items():
-        thread_info += f"• {topic_name}: {topic_data['thread_id']}\n"
+    """Handle /threadid command - get real thread IDs from supergroup topics"""
+    await update.message.reply_text("🔍 Ищу реальные thread_id топиков в супергруппе...")
     
-    thread_info += f"\n💬 Chat ID: {Config.telegram_chat_id}"
-    thread_info += f"\n🤖 Bot Token: {Config.telegram_bot_token[:20]}..."
-    thread_info += "\n\n⚠️ Если thread не найден, сообщения отправляются в основной чат"
-    
-    await update.message.reply_text(thread_info)
+    try:
+        # Получаем информацию о чате
+        bot = Bot(token=Config.telegram_bot_token)
+        chat = await bot.get_chat(chat_id=Config.telegram_chat_id)
+        
+        if not getattr(chat, 'is_forum', False):
+            await update.message.reply_text("❌ Группа не настроена как форум! Включите Topics в настройках группы.")
+            return
+        
+        # Попробуем найти рабочие thread_id
+        working_threads = []
+        url = f"https://api.telegram.org/bot{Config.telegram_bot_token}/sendMessage"
+        
+        await update.message.reply_text("🧪 Тестирую thread_id от 1 до 100...")
+        
+        for test_id in range(1, 101):
+            params = {
+                "chat_id": Config.telegram_chat_id,
+                "text": f"🔍 Поиск thread_id: {test_id}",
+                "message_thread_id": test_id
+            }
+            
+            response = requests.post(url, data=params, timeout=10)
+            
+            if response.status_code == 200:
+                working_threads.append(test_id)
+                await update.message.reply_text(f"✅ Найден рабочий thread_id: {test_id}")
+            
+            # Задержка чтобы избежать rate limit
+            import asyncio
+            await asyncio.sleep(0.2)
+        
+        # Показываем результаты
+        if working_threads:
+            result = f"🎯 Найдены рабочие thread_id: {', '.join(map(str, working_threads))}\n\n"
+            result += "📝 Для обновления Config.py:\n"
+            
+            topic_names = list(Config.topics.keys())
+            for i, thread_id in enumerate(working_threads):
+                if i < len(topic_names):
+                    result += f"'{topic_names[i]}': {{'thread_id': {thread_id}, ...}}\n"
+                else:
+                    result += f"'new_topic_{i+1}': {{'thread_id': {thread_id}, ...}}\n"
+            
+            await update.message.reply_text(result)
+        else:
+            await update.message.reply_text("❌ Не найдено рабочих thread_id!\nВозможно, топики не созданы в группе.")
+        
+        # Показываем текущую конфигурацию
+        config_info = "\n📋 Текущая конфигурация:\n"
+        for topic_name, topic_data in list(Config.topics.items())[:5]:
+            config_info += f"• {topic_name}: {topic_data['thread_id']}\n"
+        
+        await update.message.reply_text(config_info)
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {e}")
 
 async def chat_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /chatinfo command - get chat information"""
@@ -476,7 +527,118 @@ async def test_web_thread_command(update: Update, context: ContextTypes.DEFAULT_
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка: {e}")
 
-async def debug_topics_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def get_real_thread_ids_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /getrealth command - find and map real thread IDs to topics"""
+    await update.message.reply_text("🎯 Автоматический поиск и сопоставление thread_id с топиками...")
+    
+    try:
+        working_threads = []
+        url = f"https://api.telegram.org/bot{Config.telegram_bot_token}/sendMessage"
+        
+        # Быстрый поиск в диапазоне 1-50
+        for test_id in range(1, 51):
+            params = {
+                "chat_id": Config.telegram_chat_id,
+                "text": f"🔍 Test {test_id}",
+                "message_thread_id": test_id
+            }
+            
+            response = requests.post(url, data=params, timeout=5)
+            
+            if response.status_code == 200:
+                working_threads.append(test_id)
+            
+            import asyncio
+            await asyncio.sleep(0.1)
+        
+        if working_threads:
+            await update.message.reply_text(f"✅ Найдено {len(working_threads)} рабочих thread_id: {working_threads}")
+            
+            # Создаем обновленную конфигурацию
+            topic_names = list(Config.topics.keys())
+            update_config = "🔧 Обновленная конфигурация для Config.py:\n\n"
+            
+            for i, topic_name in enumerate(topic_names):
+                if i < len(working_threads):
+                    thread_id = working_threads[i]
+                    update_config += f"'{topic_name}': {{'thread_id': {thread_id}, 'query': {{...}}}},\n"
+                else:
+                    update_config += f"'{topic_name}': {{'thread_id': None, 'query': {{...}}}},\n"
+            
+            await update.message.reply_text(update_config)
+            
+            # Предлагаем автоматическое обновление
+            if len(working_threads) >= len(topic_names):
+                await update.message.reply_text("✨ Достаточно thread_id для всех топиков! Используйте /updateconfig для автоматического обновления.")
+            else:
+                await update.message.reply_text(f"⚠️ Найдено только {len(working_threads)} thread_id для {len(topic_names)} топиков. Создайте больше топиков в группе.")
+        else:
+            await update.message.reply_text("❌ Рабочие thread_id не найдены. Проверьте, что топики созданы в группе.")
+            
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {e}")
+
+async def update_config_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /updateconfig command - automatically update Config.py with found thread_id"""
+    await update.message.reply_text("🔄 Автоматическое обновление Config.py...")
+    
+    try:
+        # Сначала находим рабочие thread_id
+        working_threads = []
+        url = f"https://api.telegram.org/bot{Config.telegram_bot_token}/sendMessage"
+        
+        for test_id in range(1, 31):
+            params = {
+                "chat_id": Config.telegram_chat_id,
+                "text": f"🔄 Config update test {test_id}",
+                "message_thread_id": test_id
+            }
+            
+            response = requests.post(url, data=params, timeout=5)
+            
+            if response.status_code == 200:
+                working_threads.append(test_id)
+            
+            import asyncio
+            await asyncio.sleep(0.1)
+        
+        if not working_threads:
+            await update.message.reply_text("❌ Не найдено рабочих thread_id для обновления.")
+            return
+        
+        # Читаем текущий Config.py
+        try:
+            with open('Config.py', 'r', encoding='utf-8') as f:
+                config_content = f.read()
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка чтения Config.py: {e}")
+            return
+        
+        # Обновляем thread_id
+        topic_names = list(Config.topics.keys())
+        updated_content = config_content
+        
+        for i, topic_name in enumerate(topic_names):
+            if i < len(working_threads):
+                new_thread_id = working_threads[i]
+                # Ищем и заменяем thread_id для каждого топика
+                pattern = f'("{topic_name}":\\s*{{[^}}]*"thread_id":\\s*)[^,}}]*'
+                replacement = f'\\g<1>{new_thread_id}'
+                updated_content = re.sub(pattern, replacement, updated_content)
+        
+        # Сохраняем обновленный файл
+        try:
+            with open('Config.py', 'w', encoding='utf-8') as f:
+                f.write(updated_content)
+            
+            await update.message.reply_text(f"✅ Config.py обновлен!\nИспользованы thread_id: {working_threads[:len(topic_names)]}")
+            await update.message.reply_text("🔄 Перезапустите бота командой /restart для применения изменений.")
+            
+        except Exception as e:
+            await update.message.reply_text(f"❌ Ошибка записи Config.py: {e}")
+            
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {e}")
     """
     Автоматически тестирует диапазон thread_id для каждого топика, находит рабочий и предлагает обновить конфиг.
     """
@@ -593,8 +755,7 @@ def scanner_loop():
                                 # Send Telegram notifications if configured
                                 if Config.telegram_bot_token and Config.telegram_chat_id:
                                     logging.info(f"🚀 SENDING TO TELEGRAM: topic={topic_name}, thread={thread_id}")
-                                    # TEMPORARILY DISABLE thread_id until we find correct ones
-                                    success = send_telegram_message(item_title, item_price, item_url, item_image, item_size, None)
+                                    success = send_telegram_message(item_title, item_price, item_url, item_image, item_size, thread_id)
                                     if success:
                                         logging.info(f"✅ TELEGRAM SUCCESS for {topic_name}")
                                     else:
@@ -644,7 +805,8 @@ async def setup_bot():
     application.add_handler(CommandHandler("testwebthread", test_web_thread_command))
     application.add_handler(CommandHandler("checktopics", check_topics_command))
     application.add_handler(CommandHandler("config", config_command))
-    application.add_handler(CommandHandler("debug", debug_topics_command))
+    application.add_handler(CommandHandler("getrealth", get_real_thread_ids_command))
+    application.add_handler(CommandHandler("updateconfig", update_config_command))
     application.add_handler(CommandHandler("restart", restart_command))
     
     return application

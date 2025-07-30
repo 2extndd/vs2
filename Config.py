@@ -17,7 +17,7 @@ vinted_url = "https://www.vinted.de"
 # Список топиков и параметров для поиска
 topics = {
     "bags": {
-        "thread_id": 718,
+        "thread_id": None,
         "query": {
             'page': '1',
             'per_page': '2',
