@@ -153,30 +153,73 @@ def send_telegram_message(item_title, item_price, item_url, item_image, item_siz
         # Add thread_id if provided
         if thread_id:
             params["message_thread_id"] = thread_id
-            logging.info(f"Attempting to send to thread_id: {thread_id}")
+            logging.info(f"Attempting to send to chat {Config.telegram_chat_id}, thread_id: {thread_id}")
+        else:
+            logging.info(f"Sending to main chat {Config.telegram_chat_id} (no thread)")
 
         url = f"https://api.telegram.org/bot{Config.telegram_bot_token}/sendPhoto"
         
+        # Log the exact request being made
+        logging.info(f"Telegram API URL: {url}")
+        logging.info(f"Request params: chat_id={params['chat_id']}, thread_id={params.get('message_thread_id', 'None')}")
+        
         response = requests.post(url, data=params, timeout=timeoutconnection)
+        
+        # Log full response for debugging
+        logging.info(f"Telegram API response: Status {response.status_code}, Body: {response.text}")
+        
         if response.status_code != 200:
             logging.error(f"Telegram notification failed. Status code: {response.status_code}, Response: {response.text}")
             
-            # If thread not found, try sending without thread_id (to main chat)
-            if "message thread not found" in response.text.lower() and thread_id:
-                logging.warning(f"Thread {thread_id} not found, sending to main chat instead")
-                params_fallback = params.copy()
-                del params_fallback["message_thread_id"]
+            # Parse response to get error details
+            try:
+                error_data = response.json()
+                error_code = error_data.get('error_code')
+                description = error_data.get('description', '')
                 
-                fallback_response = requests.post(url, data=params_fallback, timeout=timeoutconnection)
-                if fallback_response.status_code == 200:
-                    logging.info(f"Telegram notification sent to main chat (fallback from thread {thread_id})")
-                else:
-                    logging.error(f"Fallback notification also failed: {fallback_response.status_code}, {fallback_response.text}")
+                logging.error(f"Telegram error details: Code {error_code}, Description: {description}")
+                
+                # Handle specific errors
+                if error_code == 400 and "message thread not found" in description.lower():
+                    logging.warning(f"Thread {thread_id} not found in chat {Config.telegram_chat_id}")
+                    if thread_id:
+                        logging.warning("Attempting fallback to main chat...")
+                        params_fallback = params.copy()
+                        del params_fallback["message_thread_id"]
+                        
+                        fallback_response = requests.post(url, data=params_fallback, timeout=timeoutconnection)
+                        if fallback_response.status_code == 200:
+                            logging.info(f"✅ Telegram notification sent to main chat (fallback from thread {thread_id})")
+                            return True
+                        else:
+                            logging.error(f"❌ Fallback notification also failed: {fallback_response.status_code}, {fallback_response.text}")
+                            return False
+                            
+                elif error_code == 403:
+                    logging.error(f"❌ Bot doesn't have permission to send messages to chat {Config.telegram_chat_id}")
+                    return False
+                    
+                elif error_code == 400 and "chat not found" in description.lower():
+                    logging.error(f"❌ Chat {Config.telegram_chat_id} not found")
+                    return False
+                    
+            except json.JSONDecodeError:
+                logging.error("Could not parse Telegram error response as JSON")
+                
+            return False
         else:
-            logging.info(f"Telegram notification sent to chat {Config.telegram_chat_id}, thread: {thread_id}")
+            if thread_id:
+                logging.info(f"✅ Telegram notification sent to chat {Config.telegram_chat_id}, thread: {thread_id}")
+            else:
+                logging.info(f"✅ Telegram notification sent to main chat {Config.telegram_chat_id}")
+            return True
 
     except requests.exceptions.RequestException as e:
-        logging.error(f"Error sending Telegram message: {e}")
+        logging.error(f"❌ Network error sending Telegram message: {e}")
+        return False
+    except Exception as e:
+        logging.error(f"❌ Unexpected error sending Telegram message: {e}")
+        return False
 
 # Filter items by exclude_catalog_ids
 def should_exclude_item(item, exclude_catalog_ids):
@@ -219,9 +262,48 @@ async def threadid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(thread_info)
 
+async def chat_info_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /chatinfo command - get chat information"""
+    try:
+        bot = Bot(token=Config.telegram_bot_token)
+        chat = await bot.get_chat(chat_id=Config.telegram_chat_id)
+        
+        info = f"📊 Информация о чате:\n"
+        info += f"• ID: {chat.id}\n"
+        info += f"• Тип: {chat.type}\n"
+        info += f"• Название: {chat.title}\n"
+        info += f"• Описание: {chat.description or 'Нет'}\n"
+        
+        if hasattr(chat, 'is_forum'):
+            info += f"• Форум: {'Да' if chat.is_forum else 'Нет'}\n"
+        
+        # Check if bot can send messages to topics
+        if chat.type == 'supergroup':
+            info += f"• Супергруппа: Да\n"
+            
+        await update.message.reply_text(info)
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка получения информации о чате: {e}")
+
 async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /test command - send test notification"""
-    await update.message.reply_text("🧪 Отправляю тестовое уведомление...")
+    # Check if user provided thread_id argument
+    args = context.args
+    test_thread_id = None
+    
+    if args:
+        try:
+            test_thread_id = int(args[0])
+            await update.message.reply_text(f"🧪 Отправляю тестовое уведомление в топик {test_thread_id}...")
+        except ValueError:
+            await update.message.reply_text("❌ Неверный формат thread_id. Используйте: /test <thread_id>")
+            return
+    else:
+        # Test with first topic's thread_id
+        first_topic = next(iter(Config.topics.values()))
+        test_thread_id = first_topic.get('thread_id')
+        await update.message.reply_text(f"🧪 Отправляю тестовое уведомление в топик {test_thread_id} (первый из конфига)...")
     
     # Send test notification
     test_title = "🧪 Тестовое уведомление"
@@ -230,13 +312,52 @@ async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     test_image = "https://images.vinted.net/thumbs/f800/01_00_8c2/01_00_8c2.jpeg"
     test_size = "M"
     
-    # Test with first topic's thread_id
-    first_topic = next(iter(Config.topics.values()))
-    test_thread_id = first_topic.get('thread_id')
-    
+    # Test with specified thread_id
     send_telegram_message(test_title, test_price, test_url, test_image, test_size, test_thread_id)
     
     await update.message.reply_text(f"✅ Тест отправлен в thread {test_thread_id}")
+
+async def test_main_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /testmain command - send test to main chat"""
+    await update.message.reply_text("🧪 Отправляю тестовое уведомление в основной чат...")
+    
+    # Send test notification to main chat (no thread_id)
+    test_title = "🧪 Тестовое уведомление (основной чат)"
+    test_price = "99.99 EUR" 
+    test_url = "https://vinted.com/test"
+    test_image = "https://images.vinted.net/thumbs/f800/01_00_8c2/01_00_8c2.jpeg"
+    test_size = "M"
+    
+    send_telegram_message(test_title, test_price, test_url, test_image, test_size, None)
+    
+    await update.message.reply_text("✅ Тест отправлен в основной чат")
+
+async def debug_topics_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /debug command - test all topics"""
+    await update.message.reply_text("🔍 Тестирую все топики из конфигурации...")
+    
+    results = []
+    for topic_name, topic_data in Config.topics.items():
+        thread_id = topic_data.get('thread_id')
+        
+        # Send test message to each topic
+        test_title = f"🔍 Debug: {topic_name}"
+        test_price = "Debug EUR"
+        test_url = "https://vinted.com/debug"
+        test_image = "https://images.vinted.net/thumbs/f800/01_00_8c2/01_00_8c2.jpeg"
+        test_size = "Debug"
+        
+        success = send_telegram_message(test_title, test_price, test_url, test_image, test_size, thread_id)
+        
+        status = "✅" if success else "❌"
+        results.append(f"{status} {topic_name} (thread: {thread_id})")
+        
+        # Small delay between messages
+        import asyncio
+        await asyncio.sleep(1)
+    
+    result_text = "📊 Результаты тестирования топиков:\n\n" + "\n".join(results)
+    await update.message.reply_text(result_text)
 
 async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /restart command"""
@@ -355,7 +476,10 @@ async def setup_bot():
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("log", log_command))
     application.add_handler(CommandHandler("threadid", threadid_command))
+    application.add_handler(CommandHandler("chatinfo", chat_info_command))
     application.add_handler(CommandHandler("test", test_command))
+    application.add_handler(CommandHandler("testmain", test_main_command))
+    application.add_handler(CommandHandler("debug", debug_topics_command))
     application.add_handler(CommandHandler("restart", restart_command))
     
     return application
