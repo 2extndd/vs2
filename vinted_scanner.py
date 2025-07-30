@@ -485,6 +485,7 @@ async def threadid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if topic_data:
             try:
                 # Получаем товары
+                headers = vinted_antiblock.get_headers()
                 session = requests.Session()
                 session.post(Config.vinted_url, headers=headers, timeout=timeoutconnection)
                 cookies = session.cookies.get_dict()
