@@ -43,7 +43,7 @@ vinted_errors = []
 # PRIORITY TOPICS - these scan more frequently
 PRIORITY_TOPICS = ["bags", "bags 2"]
 
-# ANTI-BLOCKING SYSTEM
+# ANTI-BLOCKING SYSTEM FOR VINTED
 class VintedAntiBlock:
     def __init__(self):
         self.user_agents = [
@@ -68,9 +68,9 @@ class VintedAntiBlock:
     def delay(self):
         """Быстрые задержки 0.5-2 сек"""
         self.request_count += 1
-        delay = random.uniform(0.5, 2.0)  # БЫСТРО!
+        delay = random.uniform(0.5, 2.0)
         if self.request_count % 10 == 0:
-            delay += random.uniform(2, 5)  # Короткий перерыв каждые 10 запросов
+            delay += random.uniform(2, 5)
         time.sleep(delay)
 
     def handle_errors(self, response):
@@ -87,8 +87,34 @@ class VintedAntiBlock:
             return True
         return False
 
-# Global anti-block
-anti_block = VintedAntiBlock()
+# ANTI-BLOCKING SYSTEM FOR TELEGRAM
+class TelegramAntiBlock:
+    def __init__(self):
+        self.message_count = 0
+        self.last_message_time = 0
+        
+    def safe_delay(self):
+        """СТРОГО 1 СЕКУНДА между сообщениями + защита от флуда"""
+        self.message_count += 1
+        current_time = time.time()
+        
+        # Минимум 1 секунда между сообщениями
+        time_since_last = current_time - self.last_message_time
+        if time_since_last < 1.0:
+            sleep_time = 1.0 - time_since_last
+            time.sleep(sleep_time)
+        
+        # Дополнительная защита: каждые 20 сообщений - пауза 3-5 сек
+        if self.message_count % 20 == 0:
+            extra_delay = random.uniform(3, 5)
+            logging.info(f"🛡️ TG Anti-flood: {extra_delay:.1f}s pause after {self.message_count} messages")
+            time.sleep(extra_delay)
+        
+        self.last_message_time = time.time()
+
+# Global instances
+vinted_antiblock = VintedAntiBlock()
+telegram_antiblock = TelegramAntiBlock()
 
 def load_analyzed_item():
     try:
@@ -113,12 +139,10 @@ def add_error(error_text, error_type="general"):
     timestamp = datetime.now().strftime('%H:%M:%S')
     error_entry = f"{timestamp}: {error_text}"
     
-    # Add to general errors
     last_errors.append(error_entry)
     if len(last_errors) > 3:
         last_errors = last_errors[-3:]
     
-    # Add to specific error types
     if error_type == "telegram":
         telegram_errors.append(timestamp)
         if len(telegram_errors) > 10:
@@ -150,7 +174,7 @@ def send_email(item_title, item_price, item_url, item_image, item_size=None):
 def send_slack_message(item_title, item_price, item_url, item_image, item_size=None):
     try:
         size_text = f"\n👕 {item_size}" if item_size else ""
-        message = f"*{item_title}*\n��️ {item_price}{size_text}\n🔗 {item_url}"
+        message = f"*{item_title}*\n🏷️ {item_price}{size_text}\n🔗 {item_url}"
         
         response = requests.post(
             Config.slack_webhook_url, 
@@ -166,6 +190,9 @@ def send_slack_message(item_title, item_price, item_url, item_image, item_size=N
 
 def send_telegram_message(item_title, item_price, item_url, item_image, item_size=None, thread_id=None):
     try:
+        # АНТИБАН ПАУЗА 1 СЕКУНДА + защита от флуда
+        telegram_antiblock.safe_delay()
+        
         size_text = f"\n👕 {item_size}" if item_size else ""
         
         # Find topic name
@@ -230,43 +257,38 @@ def should_exclude_item(item, exclude_catalog_ids):
     if not exclude_catalog_ids:
         return False
     
-    # Получаем catalog_id товара
     item_catalog_id = item.get('catalog_id')
     if not item_catalog_id:
         return False
     
-    # Преобразуем в строку для сравнения
     item_catalog_str = str(item_catalog_id)
-    
-    # Разбираем список исключений, убираем пробелы
     exclude_list = [id.strip() for id in exclude_catalog_ids.split(',') if id.strip()]
     
-    # Проверяем точное совпадение
     is_excluded = item_catalog_str in exclude_list
     
     if is_excluded:
-        logging.info(f"🚫 EXCLUDED: catalog_id={item_catalog_str} in exclude_list={exclude_list}")
+        logging.info(f"🚫 EXCLUDED: catalog_id={item_catalog_str}")
     
     return is_excluded
 
 def scanner_loop():
-    """БЫСТРЫЙ scanner с приоритетными топиками"""
+    """СУПЕРБЫСТРЫЙ scanner с приоритетными топиками"""
     global bot_running
     
     while bot_running:
         try:
-            logging.info("🔄 Starting scan cycle")
+            logging.info("�� Starting scan cycle")
             
             # Get session with dynamic headers
             session = requests.Session()
-            headers = anti_block.get_headers()
+            headers = vinted_antiblock.get_headers()
             
             # Get cookies
             session.post(Config.vinted_url, headers=headers, timeout=timeoutconnection)
             cookies = session.cookies.get_dict()
             
             # Anti-block delay
-            anti_block.delay()
+            vinted_antiblock.delay()
             
             # PRIORITY SCAN: Scan priority topics more frequently
             for topic_name in PRIORITY_TOPICS:
@@ -292,11 +314,11 @@ def scanner_loop():
                 if bot_running and len(Config.topics) > 1:
                     time.sleep(random.uniform(0.3, 1.0))
 
-            # ИНТЕРВАЛЫ МЕЖДУ ЦИКЛАМИ
+            # СУПЕРБЫСТРЫЕ интервалы между циклами
             if bot_running:
                 if scan_mode == "fast":
                     # Fast mode: Priority topics every 5-7s, normal every 10-15s
-                    delay = random.uniform(5, 7)  # Очень быстро для priority
+                    delay = random.uniform(5, 7)  # СУПЕРБЫСТРО для priority
                     logging.info(f"🐰 FAST: wait {delay:.0f}s")
                 else:
                     # Slow mode: Priority topics every 15-20s, normal every 30-45s  
@@ -312,7 +334,7 @@ def scanner_loop():
 
 def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
     """Сканирование одного топика"""
-    priority_mark = "🔥" if is_priority else ""
+    priority_mark = "��" if is_priority else ""
     logging.info(f"Scanning{priority_mark}: {topic_name}")
     
     params = topic_data["query"]
@@ -320,7 +342,7 @@ def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
     thread_id = topic_data.get("thread_id")
     
     # Get new headers for each topic
-    topic_headers = anti_block.get_headers()
+    topic_headers = vinted_antiblock.get_headers()
     
     # Request with anti-blocking
     response = requests.get(
@@ -332,7 +354,7 @@ def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
     )
 
     # Handle errors
-    if anti_block.handle_errors(response):
+    if vinted_antiblock.handle_errors(response):
         return
     
     if response.status_code == 200:
@@ -369,10 +391,8 @@ def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
                         send_slack_message(item_title, item_price, item_url, item_image, item_size)
 
                     if Config.telegram_bot_token and Config.telegram_chat_id:
+                        # АНТИБАН TELEGRAM ВКЛЮЧЕН В ФУНКЦИИ
                         success = send_telegram_message(item_title, item_price, item_url, item_image, item_size, thread_id)
-                        if success:
-                            # ПАУЗА 1 СЕКУНДА МЕЖДУ TELEGRAM СООБЩЕНИЯМИ
-                            time.sleep(1.0)
 
                     # Save item
                     list_analyzed_items.append(item_id)
@@ -386,7 +406,7 @@ def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
 # Telegram bot commands
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global bot_running, scan_mode, last_errors, telegram_errors, vinted_errors
-    status = "🟢 Running" if bot_running else "🔴 Stopped"
+    status = "🟢 Running" if bot_running else "�� Stopped"
     items_count = len(list_analyzed_items)
     
     mode_emoji = "🐰" if scan_mode == "fast" else "🐌"
@@ -396,8 +416,9 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         mode_interval = "15-20s priority, 30-45s normal"
     mode_info = f"\n{mode_emoji} Mode: {scan_mode} ({mode_interval})"
     
-    anti_info = f"\n🛡️ Requests: {anti_block.request_count}"
-    anti_info += f"\n🔥 Priority topics: {', '.join(PRIORITY_TOPICS)}"
+    anti_info = f"\n🛡️ Vinted requests: {vinted_antiblock.request_count}"
+    anti_info += f"\n📱 Telegram messages: {telegram_antiblock.message_count}"
+    anti_info += f"\n🔥 Priority: {', '.join(PRIORITY_TOPICS)}"
     
     # Formatted error info
     error_info = ""
@@ -420,7 +441,6 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def log_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """ИСПРАВЛЕННАЯ команда /log"""
     try:
-        # Check if log file exists
         if not os.path.exists("vinted_scanner.log"):
             await update.message.reply_text("📝 Лог файл не найден")
             return
@@ -432,20 +452,17 @@ async def log_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("📝 Лог файл пуст")
             return
             
-        # Get last 8 lines and format them
         last_lines = lines[-8:] if len(lines) >= 8 else lines
         log_text = "".join(last_lines)
         
-        # Truncate if too long for Telegram
         if len(log_text) > 3500:
             log_text = log_text[-3500:]
             log_text = "...\n" + log_text[log_text.find('\n')+1:]
         
-        await update.message.reply_text(f"📝 Последние строки лога:\n```\n{log_text}\n```", parse_mode="Markdown")
+        await update.message.reply_text(f"📝 Последние строки:\n```\n{log_text}\n```", parse_mode="Markdown")
         
     except Exception as e:
-        await update.message.reply_text(f"❌ Ошибка чтения лога: {str(e)[:100]}")
-        logging.error(f"Log command error: {e}")
+        await update.message.reply_text(f"❌ Ошибка чтения: {str(e)[:100]}")
 
 async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global bot_running, scanner_thread, list_analyzed_items
@@ -505,7 +522,7 @@ def main():
     
     load_analyzed_item()
     
-    logging.info("🚀 FAST Vinted Scanner with Priority Topics!")
+    logging.info("🚀 SUPERFAST Vinted Scanner with Priority Topics & Telegram AntiBlock!")
     
     # Start scanner
     scanner_thread = threading.Thread(target=scanner_loop, daemon=True)
