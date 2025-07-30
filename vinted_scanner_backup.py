@@ -39,8 +39,6 @@ list_analyzed_items = []
 # Global variables for bot status
 bot_running = True
 scanner_thread = None
-scan_mode = "fast"  # "fast" = 30 seconds, "slow" = 120 seconds
-last_errors = []  # Store last errors for status
 
 headers = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:128.0) Gecko/20100101 Firefox/128.0",
@@ -70,16 +68,6 @@ def load_analyzed_item():
     except IOError as e:
         logging.info("📁 No previous items file found, starting fresh")
         logging.error(e, exc_info=True)
-
-
-# Add error to last_errors list
-def add_error(error_text):
-    global last_errors
-    timestamp = datetime.now().strftime('%H:%M:%S')
-    last_errors.append(f"{timestamp}: {error_text}")
-    # Keep only last 5 errors
-    if len(last_errors) > 5:
-        last_errors = last_errors[-5:]
 
 # Save a new analyzed item to prevent repeated alerts
 def save_analyzed_item(hash):
@@ -121,10 +109,8 @@ def send_email(item_title, item_price, item_url, item_image, item_size=None):
     
     except smtplib.SMTPException as e:
         logging.error(f"SMTP error sending email: {e}", exc_info=True)
-        add_error(f"Email: {str(e)[:50]}")
     except Exception as e:
         logging.error(f"Error sending email: {e}", exc_info=True)
-        add_error(f"Email: {str(e)[:50]}")
 
 # Send a Slack message when a new item is found
 def send_slack_message(item_title, item_price, item_url, item_image, item_size=None):
@@ -146,8 +132,8 @@ def send_slack_message(item_title, item_price, item_url, item_image, item_size=N
         if response.status_code != 200:
             logging.error(f"Slack notification failed: {response.status_code}, {response.text}")
         else:
-            add_error(f"Slack: {response.status_code}")
             logging.info("Slack notification sent")
+
     except requests.exceptions.RequestException as e:
         logging.error(f"Error sending Slack message: {e}")
 
@@ -190,7 +176,6 @@ def send_telegram_message(item_title, item_price, item_url, item_image, item_siz
                 return True
             else:
                 logging.warning(f"❌ FAILED to send to topic {thread_id}: {response.status_code} - {response.text}")
-                add_error(f"TG topic {thread_id}: {response.status_code}")
         
         # Fallback: Send to main chat
         params_main = {
@@ -211,10 +196,8 @@ def send_telegram_message(item_title, item_price, item_url, item_image, item_siz
         else:
             logging.error(f"❌ FAILED to send to main chat: {response.status_code} - {response.text}")
             return False
-            add_error(f"TG main: {response.status_code}")
 
     except Exception as e:
-        add_error(f"TG exception: {str(e)[:50]}")
         logging.error(f"❌ Exception in send_telegram_message: {e}")
         return False
 
@@ -262,21 +245,19 @@ def should_exclude_item(item, exclude_catalog_ids):
 # Telegram bot commands (ТОЛЬКО 4 ОСНОВНЫЕ)
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /status command"""
-    global bot_running, scan_mode, last_errors
+    global bot_running
     status = "🟢 Бот работает" if bot_running else "🔴 Бот остановлен"
     items_count = len(list_analyzed_items)
     
-    # Scan mode info
-    mode_emoji = "🐰" if scan_mode == "fast" else "🐌"
-    mode_interval = "30 сек" if scan_mode == "fast" else "120 сек"
-    mode_info = f"\n{mode_emoji} Режим: {scan_mode} (интервал: {mode_interval})"
+    # Get chat info for diagnostics
+    chat = update.effective_chat
+    chat_info = f"\n💬 Чат: {chat.type}"
+    if hasattr(chat, 'member_count') and chat.member_count:
+        chat_info += f"\n👥 Участников: {chat.member_count}"
+    if hasattr(chat, 'is_forum') and chat.is_forum:
+        chat_info += f"\n🧵 Форум: {'Да' if chat.is_forum else 'Нет'}"
     
-    # Error info
-    error_info = ""
-    if last_errors:
-        error_info = f"\n❌ Последние ошибки:\n" + "\n".join(last_errors[-3:])
-    
-    response = f"{status}\n📊 Проанализировано товаров: {items_count}{mode_info}{error_info}"
+    response = f"{status}\n📊 Проанализировано товаров: {items_count}{chat_info}"
     await update.message.reply_text(response)
 
 async def log_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -494,17 +475,12 @@ def scanner_loop():
                         logging.warning(f"No items found for topic {topic_name}")
                 else:
                     logging.error(f"Failed to fetch items for topic {topic_name}: {response.status_code}")
-                    add_error(f"Vinted {response.status_code}: {topic_name}")
 
             # Wait before next scan (60 seconds)
             if bot_running:
-                if scan_mode == "fast":
-                    time.sleep(30)  # Fast mode: 30 seconds
-                else:
-                    time.sleep(120)  # Slow mode: 120 seconds
+                time.sleep(60)
                 
         except Exception as e:
-            add_error(f"Scanner: {str(e)[:50]}")
             logging.error(f"Error in scanner loop: {e}", exc_info=True)
             if bot_running:
                 time.sleep(30)  # Wait before retrying
@@ -516,20 +492,6 @@ def signal_handler(signum, frame):
     bot_running = False
     sys.exit(0)
 
-
-async def fast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /fast command - set fast scanning mode (30 seconds)"""
-    global scan_mode
-    scan_mode = "fast"
-    await update.message.reply_text("�� Режим изменен на БЫСТРЫЙ\n⏱️ Интервал сканирования: 30 секунд")
-    logging.info("Scan mode changed to FAST (30 seconds)")
-
-async def slow_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /slow command - set slow scanning mode (120 seconds)"""
-    global scan_mode
-    scan_mode = "slow"
-    await update.message.reply_text("🐌 Режим изменен на МЕДЛЕННЫЙ\n⏱️ Интервал сканирования: 120 секунд")
-    logging.info("Scan mode changed to SLOW (120 seconds)")
 async def setup_bot():
     """Setup Telegram bot with commands"""
     # Create application
@@ -542,8 +504,6 @@ async def setup_bot():
     application.add_handler(CommandHandler("restart", restart_command))
     application.add_handler(CommandHandler("chatinfo", chatinfo_command))
     
-    application.add_handler(CommandHandler("fast", fast_command))
-    application.add_handler(CommandHandler("slow", slow_command))
     return application
 
 def main():
