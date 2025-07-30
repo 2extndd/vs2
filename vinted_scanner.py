@@ -153,12 +153,25 @@ def send_telegram_message(item_title, item_price, item_url, item_image, item_siz
         # Add thread_id if provided
         if thread_id:
             params["message_thread_id"] = thread_id
+            logging.info(f"Attempting to send to thread_id: {thread_id}")
 
         url = f"https://api.telegram.org/bot{Config.telegram_bot_token}/sendPhoto"
         
         response = requests.post(url, data=params, timeout=timeoutconnection)
         if response.status_code != 200:
             logging.error(f"Telegram notification failed. Status code: {response.status_code}, Response: {response.text}")
+            
+            # If thread not found, try sending without thread_id (to main chat)
+            if "message thread not found" in response.text.lower() and thread_id:
+                logging.warning(f"Thread {thread_id} not found, sending to main chat instead")
+                params_fallback = params.copy()
+                del params_fallback["message_thread_id"]
+                
+                fallback_response = requests.post(url, data=params_fallback, timeout=timeoutconnection)
+                if fallback_response.status_code == 200:
+                    logging.info(f"Telegram notification sent to main chat (fallback from thread {thread_id})")
+                else:
+                    logging.error(f"Fallback notification also failed: {fallback_response.status_code}, {fallback_response.text}")
         else:
             logging.info(f"Telegram notification sent to chat {Config.telegram_chat_id}, thread: {thread_id}")
 
@@ -196,10 +209,34 @@ async def log_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def threadid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /threadid command"""
-    thread_info = "🧵 Thread IDs:\n"
+    thread_info = "🧵 Configured Thread IDs:\n"
     for topic_name, topic_data in Config.topics.items():
         thread_info += f"• {topic_name}: {topic_data['thread_id']}\n"
+    
+    thread_info += f"\n💬 Chat ID: {Config.telegram_chat_id}"
+    thread_info += f"\n🤖 Bot Token: {Config.telegram_bot_token[:20]}..."
+    thread_info += "\n\n⚠️ Если thread не найден, сообщения отправляются в основной чат"
+    
     await update.message.reply_text(thread_info)
+
+async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /test command - send test notification"""
+    await update.message.reply_text("🧪 Отправляю тестовое уведомление...")
+    
+    # Send test notification
+    test_title = "🧪 Тестовое уведомление"
+    test_price = "99.99 EUR"
+    test_url = "https://vinted.com/test"
+    test_image = "https://images.vinted.net/thumbs/f800/01_00_8c2/01_00_8c2.jpeg"
+    test_size = "M"
+    
+    # Test with first topic's thread_id
+    first_topic = next(iter(Config.topics.values()))
+    test_thread_id = first_topic.get('thread_id')
+    
+    send_telegram_message(test_title, test_price, test_url, test_image, test_size, test_thread_id)
+    
+    await update.message.reply_text(f"✅ Тест отправлен в thread {test_thread_id}")
 
 async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /restart command"""
@@ -278,7 +315,8 @@ def scanner_loop():
 
                                 # Send Telegram notifications if configured
                                 if Config.telegram_bot_token and Config.telegram_chat_id:
-                                    send_telegram_message(item_title, item_price, item_url, item_image, item_size, thread_id)
+                                    # Temporarily disable thread_id to send to main chat
+                                    send_telegram_message(item_title, item_price, item_url, item_image, item_size, None)
 
                                 # Mark item as analyzed and save it
                                 list_analyzed_items.append(item_id)
@@ -317,6 +355,7 @@ async def setup_bot():
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("log", log_command))
     application.add_handler(CommandHandler("threadid", threadid_command))
+    application.add_handler(CommandHandler("test", test_command))
     application.add_handler(CommandHandler("restart", restart_command))
     
     return application
