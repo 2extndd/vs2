@@ -9,6 +9,7 @@ import requests
 import email.utils
 import os
 import signal
+import asyncio
 import threading
 from datetime import datetime
 from email.message import EmailMessage
@@ -262,18 +263,17 @@ async def log_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def threadid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /threadid command - shows thread ID where message was sent"""
-    # Get the thread ID of the current message
-    current_thread_id = update.message.message_thread_id
+    message = update.message
     
-    if current_thread_id:
+    if message.is_topic_message and message.message_thread_id:
         # Find topic name by thread_id
         topic_name = "Unknown"
         for name, data in Config.topics.items():
-            if data.get('thread_id') == current_thread_id:
+            if data.get('thread_id') == message.message_thread_id:
                 topic_name = name
                 break
         
-        response = f"🧵 Thread ID: {current_thread_id}\n📍 Топик: {topic_name}"
+        response = f"🧵 Thread ID: {message.message_thread_id}\n📍 Топик: {topic_name}"
     else:
         response = "💬 Сообщение отправлено в основной чат\n🧵 Thread ID: None"
     
@@ -300,6 +300,9 @@ async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logging.info(f"🗑️ Cleared {old_count} analyzed items for fresh restart")
     except Exception as e:
         logging.error(f"Error clearing items file: {e}")
+    
+    # Wait a moment before restarting
+    await asyncio.sleep(2)
     
     # Restart scanner
     bot_running = True
