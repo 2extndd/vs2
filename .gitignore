@@ -116,3 +116,9 @@ dmypy.json
 # Project specific
 vinted_items.txt
 vinted_scanner.log*
+test_config.py
+
+# Development files
+.vscode/
+.venv/
+__pycache__/

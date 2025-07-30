@@ -1,1 +1,1 @@
-web: python vinted_scanner.py
+worker: python vinted_scanner.py
