@@ -122,3 +122,5 @@ test_config.py
 .vscode/
 .venv/
 __pycache__/
+*.log
+__pycache__/
