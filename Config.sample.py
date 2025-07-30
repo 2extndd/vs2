@@ -49,11 +49,11 @@ queries = [
 
 ]
 
-# PayPal Auto-Reservation Settings (Experimental)
+# PayPal Manual Reservation Settings (Experimental)
 # ВНИМАНИЕ: Функция экспериментальная, использовать осторожно!
 
-# Включить автоматическое резервирование через PayPal
-paypal_reservation_enabled = False
+# Включить РУЧНОЕ резервирование (по кнопке/команде) через PayPal
+paypal_manual_reservation_enabled = False
 
 # Аккаунт Vinted для резервирования (тестовый)
 vinted_reservation_username = ""
