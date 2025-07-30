@@ -497,7 +497,7 @@ async def setup_bot():
     # Create application
     application = Application.builder().token(Config.telegram_bot_token).build()
     
-    # Add command handlers
+    # Add essential command handlers only
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("log", log_command))
     application.add_handler(CommandHandler("threadid", threadid_command))
