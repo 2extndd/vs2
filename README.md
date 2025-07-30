@@ -85,8 +85,17 @@ Each topic has the following structure:
 
 ### Railway Deployment
 
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/template/dYCEUj?referralCode=jKcVeV)
+
+**Automatic Deploy:**
+1. Click the "Deploy on Railway" button above
+2. Connect your GitHub account if needed
+3. Railway will automatically deploy the project
+4. The bot will start running immediately
+
+**Manual Deploy:**
 1. Create a new Railway project
-2. Connect your GitHub repository
+2. Connect your GitHub repository: `https://github.com/2extndd/vs2`
 3. Railway will automatically detect the Python project and deploy using the `Procfile`
 
 ### Local Deployment
