@@ -7,6 +7,6 @@
     "numReplicas": 1,
     "sleepApplication": false,
     "restartPolicyType": "ON_FAILURE",
-    "startCommand": ". /opt/venv/bin/activate && python start.py"
+    "startCommand": "python start.py"
   }
 }
