@@ -48,3 +48,25 @@ queries = [
     },
 
 ]
+
+# PayPal Auto-Reservation Settings (Experimental)
+# ВНИМАНИЕ: Функция экспериментальная, использовать осторожно!
+
+# Включить автоматическое резервирование через PayPal
+paypal_reservation_enabled = False
+
+# Аккаунт Vinted для резервирования (тестовый)
+vinted_reservation_username = ""
+vinted_reservation_password = ""
+
+# Топики для автоматического резервирования (только priority)
+reservation_topics = ["bags", "bags 2"]
+
+# Максимальное количество резерваций в час
+max_reservations_per_hour = 5
+
+# Минимальная цена для резервирования (€)
+min_reservation_price = 10
+
+# Максимальная цена для резервирования (€)
+max_reservation_price = 500
