@@ -11,11 +11,87 @@ import os
 import signal
 import asyncio
 import threading
+import random
 from datetime import datetime
 from email.message import EmailMessage
 from logging.handlers import RotatingFileHandler
 from telegram import Update, Bot
 from telegram.ext import Application, CommandHandler, ContextTypes
+
+# Anti-blocking system
+class VintedAntiBlock:
+    def __init__(self):
+        self.user_agents = [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/121.0"
+        ]
+        self.request_count = 0
+        self.last_request_time = 0
+        self.session_start = time.time()
+        
+    def get_random_headers(self):
+        return {
+            "User-Agent": random.choice(self.user_agents),
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "en-US,en;q=0.9,de;q=0.8",
+            "Accept-Encoding": "gzip, deflate, br",
+            "DNT": "1",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache"
+        }
+    
+    def smart_delay(self):
+        """Intelligent delay between requests"""
+        self.request_count += 1
+        current_time = time.time()
+        
+        # Base delay: 5-12 seconds (increased for safety)
+        base_delay = random.uniform(5, 12)
+        
+        # Progressive delay after many requests
+        if self.request_count % 8 == 0:
+            base_delay += random.uniform(15, 30)  # Extra delay every 8 requests
+            
+        if self.request_count % 30 == 0:
+            base_delay += random.uniform(120, 300)  # Long break every 30 requests
+            logging.info(f"😴 Taking long break after {self.request_count} requests")
+            
+        # Avoid too frequent requests
+        time_since_last = current_time - self.last_request_time
+        if time_since_last < 3:
+            base_delay += random.uniform(3, 8)
+            
+        logging.info(f"🕐 Smart delay: {base_delay:.1f}s (request #{self.request_count})")
+        time.sleep(base_delay)
+        self.last_request_time = time.time()
+        
+    def handle_rate_limit(self, response):
+        """Handle rate limiting responses"""
+        if response.status_code == 429:
+            retry_after = response.headers.get('Retry-After', 600)
+            wait_time = int(retry_after) + random.uniform(120, 300)
+            logging.warning(f"🚫 Rate limited! Waiting {wait_time:.0f}s")
+            add_error(f"Rate limit: waiting {wait_time:.0f}s")
+            time.sleep(wait_time)
+            return True
+        elif response.status_code in [403, 406, 503]:
+            wait_time = random.uniform(600, 1200)  # 10-20 minutes
+            logging.warning(f"🔒 Blocked (HTTP {response.status_code})! Waiting {wait_time:.0f}s")
+            add_error(f"Blocked {response.status_code}: waiting {wait_time:.0f}s")
+            time.sleep(wait_time)
+            return True
+        return False
+
+# Global anti-block instance
+anti_block = VintedAntiBlock()
 
 # Override config with environment variables if available (for Railway)
 if os.getenv('TELEGRAM_BOT_TOKEN'):
@@ -268,7 +344,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Scan mode info
     mode_emoji = "🐰" if scan_mode == "fast" else "🐌"
-    mode_interval = "30 сек" if scan_mode == "fast" else "120 сек"
+    mode_interval = "90-150 сек" if scan_mode == "fast" else "240-360 сек"
     mode_info = f"\n{mode_emoji} Режим: {scan_mode} (интервал: {mode_interval})"
     
     # Count errors by type
@@ -446,9 +522,27 @@ def scanner_loop():
                 exclude_catalog_ids = topic_data.get("exclude_catalog_ids", "")
                 thread_id = topic_data.get("thread_id")
                 
-                # Request items from the Vinted API based on the search parameters
-                response = requests.get(f"{Config.vinted_url}/api/v2/catalog/items", 
-                                      params=params, cookies=cookies, headers=headers)
+                # Smart delay before request
+                anti_block.smart_delay()
+                
+                # Request items from the Vinted API with anti-blocking headers
+                dynamic_headers = anti_block.get_random_headers()
+                dynamic_headers.update(cookies)
+                
+                try:
+                    response = requests.get(f"{Config.vinted_url}/api/v2/catalog/items", 
+                                          params=params, 
+                                          headers=dynamic_headers,
+                                          timeout=timeoutconnection)
+                    
+                    # Handle rate limiting
+                    if anti_block.handle_rate_limit(response):
+                        continue  # Skip this iteration and try again
+                        
+                except requests.exceptions.RequestException as e:
+                    logging.error(f"❌ Request failed for {topic_name}: {e}")
+                    add_error(f"Request error: {str(e)[:30]}")
+                    continue
 
                 if response.status_code == 200:
                     data = response.json()
@@ -513,12 +607,16 @@ def scanner_loop():
                     logging.error(f"Failed to fetch items for topic {topic_name}: {response.status_code}")
                     add_error(f"Vinted {response.status_code}: {topic_name}")
 
-            # Wait before next scan (60 seconds)
+            # Wait before next scan with safer intervals
             if bot_running:
                 if scan_mode == "fast":
-                    time.sleep(30)  # Fast mode: 30 seconds
+                    base_sleep = random.uniform(90, 150)  # Fast mode: 90-150 seconds
+                    logging.info(f"🐰 Fast mode: waiting {base_sleep:.0f}s before next cycle")
+                    time.sleep(base_sleep)
                 else:
-                    time.sleep(120)  # Slow mode: 120 seconds
+                    base_sleep = random.uniform(240, 360)  # Slow mode: 240-360 seconds  
+                    logging.info(f"🐌 Slow mode: waiting {base_sleep:.0f}s before next cycle")
+                    time.sleep(base_sleep)
                 
         except Exception as e:
             add_error(f"Scanner: {str(e)[:50]}")
@@ -538,14 +636,14 @@ async def fast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /fast command - set fast scanning mode (30 seconds)"""
     global scan_mode
     scan_mode = "fast"
-    await update.message.reply_text("🐰 Режим изменен на БЫСТРЫЙ\n⏱️ Интервал сканирования: 30 секунд")
+    await update.message.reply_text("🐰 Режим изменен на БЫСТРЫЙ\n⏱️ Интервал сканирования: 90-150 секунд\n🛡️ С защитой от блокировок")
     logging.info("Scan mode changed to FAST (30 seconds)")
 
 async def slow_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /slow command - set slow scanning mode (120 seconds)"""
     global scan_mode
     scan_mode = "slow"
-    await update.message.reply_text("🐌 Режим изменен на МЕДЛЕННЫЙ\n⏱️ Интервал сканирования: 120 секунд")
+    await update.message.reply_text("🐌 Режим изменен на МЕДЛЕННЫЙ\n⏱️ Интервал сканирования: 240-360 секунд\n🛡️ С защитой от блокировок")
     logging.info("Scan mode changed to SLOW (120 seconds)")
 async def setup_bot():
     """Setup Telegram bot with commands"""
