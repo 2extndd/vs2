@@ -464,98 +464,79 @@ async def log_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка чтения: {str(e)[:100]}")
 
-
 async def threadid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Простая команда /threadid"""
+    """РАБОЧАЯ команда /threadid с принудительным обновлением"""
     message = update.message
     
     if message.is_topic_message and message.message_thread_id:
         thread_id = message.message_thread_id
         
-        # Найти название топика
+        # Найти топик
         topic_name = "Неизвестный"
-        for name, data in Config.topics.items():
-            if data.get('thread_id') == thread_id:
-                topic_name = name
-                break
-        
-        # Простой ответ
-        response = f"🧵 **Thread ID: {thread_id}**\n📍 **Топик:** {topic_name}\n\n🔄 Принудительно обновляю товары..."
-        await update.message.reply_text(response, parse_mode="Markdown")
-        
-        # Простое принудительное обновление
-        updated_count = await force_refresh_topic(thread_id, topic_name)
-        
-        final_msg = f"✅ **Готово!**\nОтправлено {updated_count} товаров"
-        await update.message.reply_text(final_msg, parse_mode="Markdown")
-        
-    else:
-        await update.message.reply_text("❌ Команда работает только в топиках!")
-
-# Простая функция обновления
-async def force_refresh_topic(thread_id, topic_name):
-    """Принудительно обновляет товары для топика"""
-    try:
-        # Найти данные топика
         topic_data = None
         for name, data in Config.topics.items():
             if data.get('thread_id') == thread_id:
+                topic_name = name
                 topic_data = data
                 break
         
-        if not topic_data:
-            return 0
+        await update.message.reply_text(f"🧵 Thread ID: {thread_id}\n📍 Топик: {topic_name}\n🔄 Принудительное обновление...")
         
-        # Получить товары
-        session = requests.Session()
-        session.post(Config.vinted_url, headers=headers, timeout=timeoutconnection)
-        cookies = session.cookies.get_dict()
-        
-        params = topic_data["query"]
-        exclude_catalog_ids = topic_data.get("exclude_catalog_ids", "")
-        
-        response = requests.get(f"{Config.vinted_url}/api/v2/catalog/items", 
-                              params=params, cookies=cookies, headers=headers)
-        
-        if response.status_code != 200:
-            return 0
-        
-        data = response.json()
-        if not data or "items" not in data:
-            return 0
-        
-        sent_count = 0
-        for item in data["items"]:
-            if should_exclude_item(item, exclude_catalog_ids):
-                continue
+        if topic_data:
+            try:
+                # Получаем товары
+                session = requests.Session()
+                session.post(Config.vinted_url, headers=headers, timeout=timeoutconnection)
+                cookies = session.cookies.get_dict()
                 
-            item_id = str(item["id"])
-            
-            # Убрать из списка для повторной отправки
-            if item_id in list_analyzed_items:
-                list_analyzed_items.remove(item_id)
-            
-            # Отправить заново
-            if item_id not in list_analyzed_items:
-                item_title = item["title"]
-                item_url = item["url"]
-                item_price = f'{item["price"]["amount"]} {item["price"]["currency_code"]}'
-                item_image = item["photo"]["full_size_url"]
-                item_size = item.get("size_title")
+                params = topic_data["query"]
+                exclude_catalog_ids = topic_data.get("exclude_catalog_ids", "")
                 
-                success = send_telegram_message(item_title, item_price, item_url, item_image, item_size, thread_id)
-                if success:
-                    sent_count += 1
-                    time.sleep(1)
+                response = requests.get(f"{Config.vinted_url}/api/v2/catalog/items", 
+                                      params=params, cookies=cookies, headers=headers)
                 
-                list_analyzed_items.append(item_id)
-                save_analyzed_item(item_id)
-        
-        return sent_count
-        
-    except Exception as e:
-        logging.error(f"Error in force_refresh_topic: {e}")
-        return 0
+                if response.status_code == 200:
+                    data = response.json()
+                    if data and "items" in data:
+                        sent_count = 0
+                        
+                        # Обрабатываем товары
+                        for item in data["items"]:
+                            if not should_exclude_item(item, exclude_catalog_ids):
+                                item_id = str(item["id"])
+                                
+                                # Убираем из списка для повторной отправки
+                                if item_id in list_analyzed_items:
+                                    list_analyzed_items.remove(item_id)
+                                
+                                # Отправляем заново
+                                item_title = item["title"]
+                                item_url = item["url"]
+                                item_price = f'{item["price"]["amount"]} {item["price"]["currency_code"]}'
+                                item_image = item["photo"]["full_size_url"]
+                                item_size = item.get("size_title")
+                                
+                                success = send_telegram_message(item_title, item_price, item_url, item_image, item_size, thread_id)
+                                if success:
+                                    sent_count += 1
+                                    # ПАУЗА 3 СЕКУНДЫ между сообщениями (anti-blocking)
+                                    time.sleep(3)
+                                
+                                list_analyzed_items.append(item_id)
+                                save_analyzed_item(item_id)
+                        
+                        await update.message.reply_text(f"✅ Готово! Отправлено {sent_count} товаров для топика {topic_name}")
+                    else:
+                        await update.message.reply_text(f"❌ Нет товаров в API для топика {topic_name}")
+                else:
+                    await update.message.reply_text(f"❌ Ошибка API: {response.status_code}")
+                    
+            except Exception as e:
+                await update.message.reply_text(f"❌ Ошибка: {str(e)[:100]}")
+        else:
+            await update.message.reply_text(f"❌ Топик не найден в конфигурации")
+    else:
+        await update.message.reply_text("❌ Команда работает только в топиках!")
 
 async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global bot_running, scanner_thread, list_analyzed_items
@@ -646,13 +627,13 @@ def main():
             logging.error(f"Bot error: {e}")
             try:
                 while bot_running:
-                    time.sleep(1)
+                    time.sleep(2)  # ANTI-BLOCKING
             except KeyboardInterrupt:
                 pass
     else:
         try:
             while bot_running:
-                time.sleep(1)
+                time.sleep(2)  # ANTI-BLOCKING
         except KeyboardInterrupt:
             pass
 
