@@ -35,8 +35,13 @@ timeoutconnection = 30
 list_analyzed_items = []
 bot_running = True
 scanner_thread = None
-scan_mode = "fast"  # "fast" = 10 seconds, "slow" = 30 seconds - БЫСТРО!
+scan_mode = "fast"  # "fast" = 5-7s priority, 10-15s normal, "slow" = 15-20s priority, 30-45s normal
 last_errors = []
+telegram_errors = []
+vinted_errors = []
+
+# PRIORITY TOPICS - these scan more frequently
+PRIORITY_TOPICS = ["bags", "bags 2"]
 
 # ANTI-BLOCKING SYSTEM
 class VintedAntiBlock:
@@ -103,12 +108,25 @@ def save_analyzed_item(item_id):
     except Exception as e:
         logging.error(f"Save error: {e}")
 
-def add_error(error_text):
-    global last_errors
+def add_error(error_text, error_type="general"):
+    global last_errors, telegram_errors, vinted_errors
     timestamp = datetime.now().strftime('%H:%M:%S')
-    last_errors.append(f"{timestamp}: {error_text}")
-    if len(last_errors) > 3:  # Только 3 последние ошибки
+    error_entry = f"{timestamp}: {error_text}"
+    
+    # Add to general errors
+    last_errors.append(error_entry)
+    if len(last_errors) > 3:
         last_errors = last_errors[-3:]
+    
+    # Add to specific error types
+    if error_type == "telegram":
+        telegram_errors.append(timestamp)
+        if len(telegram_errors) > 10:
+            telegram_errors = telegram_errors[-10:]
+    elif error_type == "vinted":
+        vinted_errors.append(timestamp)
+        if len(vinted_errors) > 10:
+            vinted_errors = vinted_errors[-10:]
 
 def send_email(item_title, item_price, item_url, item_image, item_size=None):
     try:
@@ -132,7 +150,7 @@ def send_email(item_title, item_price, item_url, item_image, item_size=None):
 def send_slack_message(item_title, item_price, item_url, item_image, item_size=None):
     try:
         size_text = f"\n👕 {item_size}" if item_size else ""
-        message = f"*{item_title}*\n🏷️ {item_price}{size_text}\n🔗 {item_url}"
+        message = f"*{item_title}*\n��️ {item_price}{size_text}\n🔗 {item_url}"
         
         response = requests.post(
             Config.slack_webhook_url, 
@@ -180,7 +198,7 @@ def send_telegram_message(item_title, item_price, item_url, item_image, item_siz
                 logging.info(f"✅ Sent to topic {thread_id}")
                 return True
             else:
-                add_error(f"TG topic: {response.status_code}")
+                add_error(f"TG topic: {response.status_code}", "telegram")
         
         # Fallback to main chat
         params = {
@@ -200,24 +218,39 @@ def send_telegram_message(item_title, item_price, item_url, item_image, item_siz
             logging.info("✅ Sent to main chat")
             return True
         else:
-            add_error(f"TG main: {response.status_code}")
+            add_error(f"TG main: {response.status_code}", "telegram")
             return False
 
     except Exception as e:
-        add_error(f"TG: {str(e)[:30]}")
+        add_error(f"TG: {str(e)[:30]}", "telegram")
         return False
 
 def should_exclude_item(item, exclude_catalog_ids):
+    """ИСПРАВЛЕННАЯ функция фильтрации"""
     if not exclude_catalog_ids:
         return False
     
-    exclude_list = [id.strip() for id in exclude_catalog_ids.split(',') if id.strip()]
-    item_catalog_id = str(item.get('catalog_id', ''))
+    # Получаем catalog_id товара
+    item_catalog_id = item.get('catalog_id')
+    if not item_catalog_id:
+        return False
     
-    return item_catalog_id in exclude_list
+    # Преобразуем в строку для сравнения
+    item_catalog_str = str(item_catalog_id)
+    
+    # Разбираем список исключений, убираем пробелы
+    exclude_list = [id.strip() for id in exclude_catalog_ids.split(',') if id.strip()]
+    
+    # Проверяем точное совпадение
+    is_excluded = item_catalog_str in exclude_list
+    
+    if is_excluded:
+        logging.info(f"🚫 EXCLUDED: catalog_id={item_catalog_str} in exclude_list={exclude_list}")
+    
+    return is_excluded
 
 def scanner_loop():
-    """БЫСТРЫЙ scanner с anti-blocking"""
+    """БЫСТРЫЙ scanner с приоритетными топиками"""
     global bot_running
     
     while bot_running:
@@ -235,89 +268,39 @@ def scanner_loop():
             # Anti-block delay
             anti_block.delay()
             
-            # Scan topics
+            # PRIORITY SCAN: Scan priority topics more frequently
+            for topic_name in PRIORITY_TOPICS:
+                if not bot_running:
+                    break
+                    
+                if topic_name in Config.topics:
+                    topic_data = Config.topics[topic_name]
+                    scan_topic(topic_name, topic_data, cookies, session, is_priority=True)
+                    
+                    # Small delay between priority topics
+                    if bot_running:
+                        time.sleep(random.uniform(0.2, 0.5))
+            
+            # NORMAL SCAN: Scan all topics including priority ones again
             for topic_name, topic_data in Config.topics.items():
                 if not bot_running:
                     break
                     
-                logging.info(f"Scanning: {topic_name}")
-                params = topic_data["query"]
-                exclude_catalog_ids = topic_data.get("exclude_catalog_ids", "")
-                thread_id = topic_data.get("thread_id")
+                scan_topic(topic_name, topic_data, cookies, session, is_priority=(topic_name in PRIORITY_TOPICS))
                 
-                # Get new headers for each topic
-                topic_headers = anti_block.get_headers()
-                
-                # Request with anti-blocking
-                response = requests.get(
-                    f"{Config.vinted_url}/api/v2/catalog/items", 
-                    params=params, 
-                    cookies=cookies, 
-                    headers=topic_headers,
-                    timeout=timeoutconnection
-                )
-
-                # Handle errors
-                if anti_block.handle_errors(response):
-                    continue
-                
-                if response.status_code == 200:
-                    data = response.json()
-
-                    if data and "items" in data:
-                        logging.info(f"Found {len(data['items'])} items")
-                        
-                        for item in data["items"]:
-                            if not bot_running:
-                                break
-                                
-                            if should_exclude_item(item, exclude_catalog_ids):
-                                continue
-                                
-                            item_id = str(item["id"])
-                            
-                            if item_id not in list_analyzed_items:
-                                item_title = item["title"]
-                                item_url = item["url"]
-                                item_price = f'{item["price"]["amount"]} {item["price"]["currency_code"]}'
-                                item_image = item["photo"]["full_size_url"]
-                                item_size = item.get("size_title")
-
-                                logging.info(f"🆕 NEW: {item_title} - {item_price}")
-
-                                # Send notifications
-                                if Config.smtp_username and Config.smtp_server:
-                                    send_email(item_title, item_price, item_url, item_image, item_size)
-
-                                if Config.slack_webhook_url:
-                                    send_slack_message(item_title, item_price, item_url, item_image, item_size)
-
-                                if Config.telegram_bot_token and Config.telegram_chat_id:
-                                    success = send_telegram_message(item_title, item_price, item_url, item_image, item_size, thread_id)
-                                    if success:
-                                        # ПАУЗА 1 СЕКУНДА МЕЖДУ TELEGRAM СООБЩЕНИЯМИ
-                                        time.sleep(1.0)
-
-                                # Save item
-                                list_analyzed_items.append(item_id)
-                                save_analyzed_item(item_id)
-                    else:
-                        logging.warning(f"No items: {topic_name}")
-                else:
-                    logging.error(f"Error {response.status_code}: {topic_name}")
-                    add_error(f"HTTP {response.status_code}")
-                
-                # Quick delay between topics
+                # Small delay between topics
                 if bot_running and len(Config.topics) > 1:
-                    time.sleep(random.uniform(0.3, 1.0))  # 0.3-1 сек между топиками
+                    time.sleep(random.uniform(0.3, 1.0))
 
-            # БЫСТРЫЕ интервалы между циклами
+            # ИНТЕРВАЛЫ МЕЖДУ ЦИКЛАМИ
             if bot_running:
                 if scan_mode == "fast":
-                    delay = random.uniform(10, 15)  # 10-15 сек (было 30!)
+                    # Fast mode: Priority topics every 5-7s, normal every 10-15s
+                    delay = random.uniform(5, 7)  # Очень быстро для priority
                     logging.info(f"🐰 FAST: wait {delay:.0f}s")
                 else:
-                    delay = random.uniform(30, 45)  # 30-45 сек (было 120!)
+                    # Slow mode: Priority topics every 15-20s, normal every 30-45s  
+                    delay = random.uniform(15, 20)  # Быстрее для priority
                     logging.info(f"🐌 SLOW: wait {delay:.0f}s")
                 time.sleep(delay)
                 
@@ -325,27 +308,144 @@ def scanner_loop():
             add_error(f"Scanner: {str(e)[:30]}")
             logging.error(f"Error: {e}")
             if bot_running:
-                time.sleep(20)  # Wait before retry
+                time.sleep(20)
+
+def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
+    """Сканирование одного топика"""
+    priority_mark = "🔥" if is_priority else ""
+    logging.info(f"Scanning{priority_mark}: {topic_name}")
+    
+    params = topic_data["query"]
+    exclude_catalog_ids = topic_data.get("exclude_catalog_ids", "")
+    thread_id = topic_data.get("thread_id")
+    
+    # Get new headers for each topic
+    topic_headers = anti_block.get_headers()
+    
+    # Request with anti-blocking
+    response = requests.get(
+        f"{Config.vinted_url}/api/v2/catalog/items", 
+        params=params, 
+        cookies=cookies, 
+        headers=topic_headers,
+        timeout=timeoutconnection
+    )
+
+    # Handle errors
+    if anti_block.handle_errors(response):
+        return
+    
+    if response.status_code == 200:
+        data = response.json()
+
+        if data and "items" in data:
+            logging.info(f"Found {len(data['items'])} items")
+            
+            for item in data["items"]:
+                if not bot_running:
+                    break
+                    
+                # ИСПРАВЛЕННАЯ проверка исключений
+                if should_exclude_item(item, exclude_catalog_ids):
+                    continue
+                    
+                item_id = str(item["id"])
+                
+                if item_id not in list_analyzed_items:
+                    item_title = item["title"]
+                    item_url = item["url"]
+                    item_price = f'{item["price"]["amount"]} {item["price"]["currency_code"]}'
+                    item_image = item["photo"]["full_size_url"]
+                    item_size = item.get("size_title")
+
+                    priority_log = "🔥 PRIORITY " if is_priority else ""
+                    logging.info(f"🆕 {priority_log}NEW: {item_title} - {item_price}")
+
+                    # Send notifications
+                    if Config.smtp_username and Config.smtp_server:
+                        send_email(item_title, item_price, item_url, item_image, item_size)
+
+                    if Config.slack_webhook_url:
+                        send_slack_message(item_title, item_price, item_url, item_image, item_size)
+
+                    if Config.telegram_bot_token and Config.telegram_chat_id:
+                        success = send_telegram_message(item_title, item_price, item_url, item_image, item_size, thread_id)
+                        if success:
+                            # ПАУЗА 1 СЕКУНДА МЕЖДУ TELEGRAM СООБЩЕНИЯМИ
+                            time.sleep(1.0)
+
+                    # Save item
+                    list_analyzed_items.append(item_id)
+                    save_analyzed_item(item_id)
+        else:
+            logging.warning(f"No items: {topic_name}")
+    else:
+        logging.error(f"Error {response.status_code}: {topic_name}")
+        add_error(f"HTTP {response.status_code}", "vinted")
 
 # Telegram bot commands
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    global bot_running, scan_mode, last_errors
+    global bot_running, scan_mode, last_errors, telegram_errors, vinted_errors
     status = "🟢 Running" if bot_running else "🔴 Stopped"
     items_count = len(list_analyzed_items)
     
     mode_emoji = "🐰" if scan_mode == "fast" else "🐌"
-    mode_interval = "10-15s" if scan_mode == "fast" else "30-45s"
+    if scan_mode == "fast":
+        mode_interval = "5-7s priority, 10-15s normal"
+    else:
+        mode_interval = "15-20s priority, 30-45s normal"
     mode_info = f"\n{mode_emoji} Mode: {scan_mode} ({mode_interval})"
     
     anti_info = f"\n🛡️ Requests: {anti_block.request_count}"
-    anti_info += f"\n🔄 User-Agents: {len(anti_block.user_agents)}"
+    anti_info += f"\n🔥 Priority topics: {', '.join(PRIORITY_TOPICS)}"
     
+    # Formatted error info
     error_info = ""
+    if telegram_errors:
+        tg_count = len(telegram_errors)
+        tg_last = telegram_errors[-1] if telegram_errors else "N/A"
+        error_info += f"\n📱 Telegram ({tg_count})({tg_last})"
+        
+    if vinted_errors:
+        vinted_count = len(vinted_errors)
+        vinted_last = vinted_errors[-1] if vinted_errors else "N/A"
+        error_info += f"\n🌐 Vinted ({vinted_count})({vinted_last})"
+    
     if last_errors:
-        error_info = f"\n❌ Errors:\n" + "\n".join(last_errors)
+        error_info += f"\n❌ Recent:\n" + "\n".join(last_errors[-2:])
     
     response = f"{status}\n📊 Items: {items_count}{mode_info}{anti_info}{error_info}"
     await update.message.reply_text(response)
+
+async def log_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ИСПРАВЛЕННАЯ команда /log"""
+    try:
+        # Check if log file exists
+        if not os.path.exists("vinted_scanner.log"):
+            await update.message.reply_text("📝 Лог файл не найден")
+            return
+            
+        with open("vinted_scanner.log", "r", encoding="utf-8", errors="ignore") as f:
+            lines = f.readlines()
+            
+        if not lines:
+            await update.message.reply_text("📝 Лог файл пуст")
+            return
+            
+        # Get last 8 lines and format them
+        last_lines = lines[-8:] if len(lines) >= 8 else lines
+        log_text = "".join(last_lines)
+        
+        # Truncate if too long for Telegram
+        if len(log_text) > 3500:
+            log_text = log_text[-3500:]
+            log_text = "...\n" + log_text[log_text.find('\n')+1:]
+        
+        await update.message.reply_text(f"📝 Последние строки лога:\n```\n{log_text}\n```", parse_mode="Markdown")
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка чтения лога: {str(e)[:100]}")
+        logging.error(f"Log command error: {e}")
 
 async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global bot_running, scanner_thread, list_analyzed_items
@@ -373,12 +473,12 @@ async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def fast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global scan_mode
     scan_mode = "fast"
-    await update.message.reply_text("🐰 FAST mode: 10-15 seconds")
+    await update.message.reply_text("🐰 FAST mode: 5-7s priority, 10-15s normal")
 
 async def slow_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global scan_mode
     scan_mode = "slow"
-    await update.message.reply_text("🐌 SLOW mode: 30-45 seconds")
+    await update.message.reply_text("🐌 SLOW mode: 15-20s priority, 30-45s normal")
 
 def signal_handler(signum, frame):
     global bot_running
@@ -390,6 +490,7 @@ async def setup_bot():
     application = Application.builder().token(Config.telegram_bot_token).build()
     
     application.add_handler(CommandHandler("status", status_command))
+    application.add_handler(CommandHandler("log", log_command))
     application.add_handler(CommandHandler("restart", restart_command))
     application.add_handler(CommandHandler("fast", fast_command))
     application.add_handler(CommandHandler("slow", slow_command))
@@ -404,7 +505,7 @@ def main():
     
     load_analyzed_item()
     
-    logging.info("🚀 FAST Vinted Scanner with Anti-Blocking!")
+    logging.info("🚀 FAST Vinted Scanner with Priority Topics!")
     
     # Start scanner
     scanner_thread = threading.Thread(target=scanner_loop, daemon=True)
