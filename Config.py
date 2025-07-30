@@ -9,7 +9,7 @@ slack_webhook_url = ""
 
 # Telegram Token and ChatID for notification
 telegram_bot_token = "8103604647:AAFoZVtAQxg5prugi_u2-YAkXFnf3WRTM-Q"
-telegram_chat_id = "-1002721134127"
+telegram_chat_id = "-1002742804558"
 
 # Vinted URL: change the TLD according to your country (.fr, .es, etc.)
 vinted_url = "https://www.vinted.de"
@@ -17,7 +17,7 @@ vinted_url = "https://www.vinted.de"
 # Список топиков и параметров для поиска
 topics = {
     "bags": {
-        "thread_id": None,
+        "thread_id": 190,
         "query": {
             'page': '1',
             'per_page': '2',
@@ -31,7 +31,7 @@ topics = {
     },
 
     "bags 2": {
-        "thread_id": 718,
+        "thread_id": 190,
         "query": {
             'page': '1',
             'per_page': '2',
@@ -45,7 +45,7 @@ topics = {
     },
 
     "Alexander Wang Leather Bags": {
-        "thread_id": 718,
+        "thread_id": 190,
         "query": {
             'page': '1',
             'per_page': '2',
@@ -59,7 +59,7 @@ topics = {
     },
 
     "Rick Owens": {
-        "thread_id": 843,
+        "thread_id": 275,
         "query": {
             'page': '1',
             'per_page': '2',
@@ -72,7 +72,7 @@ topics = {
         "exclude_catalog_ids": "26,98,146,139"
     },
     "Prada": {
-        "thread_id": 747,
+        "thread_id": 291,
         "query": {
             'page': '1',
             'per_page': '2',
@@ -85,7 +85,7 @@ topics = {
         "exclude_catalog_ids": "26,98,146,139"
     },
     "Isaac Selam + Boris Bidjian": {
-        "thread_id": 1229,
+        "thread_id": 294,
         "query": {
             'page': '1',
             'per_page': '2',
@@ -98,7 +98,7 @@ topics = {
         "exclude_catalog_ids": "26,98,146,139"
     },
     "Maison Margiela + mm6": {
-        "thread_id": 1278,
+        "thread_id": 302,
         "query": {
             'page': '1',
             'per_page': '2',
@@ -111,7 +111,7 @@ topics = {
         "exclude_catalog_ids": "26,98,146,139"
     },
     "Raf Simons + ALL": {
-        "thread_id": 1351,
+        "thread_id": 305,
         "query": {
             'page': '1',
             'per_page': '2',
@@ -124,7 +124,7 @@ topics = {
         "exclude_catalog_ids": "26,98,146,139"
     },
     "Alyx": {
-        "thread_id": 2308,
+        "thread_id": 315,
         "query": {
             'page': '1',
             'per_page': '2',
@@ -137,7 +137,7 @@ topics = {
         "exclude_catalog_ids": "26,98,146,139"
     },
     "Misbhv": {
-        "thread_id": 2308,
+        "thread_id": 315,
         "query": {
             'page': '1',
             'per_page': '2',
@@ -150,7 +150,7 @@ topics = {
         "exclude_catalog_ids": "26,98,146,139"
     },
     "Y-3 and Y's": {
-        "thread_id": 2394,
+        "thread_id": 331,
         "query": {
             'page': '1',
             'per_page': '2',
@@ -163,7 +163,7 @@ topics = {
         "exclude_catalog_ids": "26,98,146,139"
     },
     "Japanese Items and LUX": {
-        "thread_id": 2959,
+        "thread_id": 334,
         "query": {
             'page': '1',
             'per_page': '2',
@@ -176,7 +176,7 @@ topics = {
         "exclude_catalog_ids": "26,98,146,139"
     },
     "Japanese Items and LUX #2 (типо кэрол, дорогая япония, анн демель и т.д.)": {
-        "thread_id": 2959,
+        "thread_id": 334,
         "query": {
             'page': '1',
             'per_page': '2',
@@ -189,7 +189,7 @@ topics = {
         "exclude_catalog_ids": "26,98,146,139"
     },
     "Japanese Items and LUX #3 (том кром, дамир дома, крейг грин)": {
-        "thread_id": 2959,
+        "thread_id": 334,
         "query": {
             'page': '1',
             'per_page': '2',
@@ -202,7 +202,7 @@ topics = {
         "exclude_catalog_ids": "26,98,146,139"
     },
     "CDG + Junya": {
-        "thread_id": 2977,
+        "thread_id": 340,
         "query": {
             'page': '1',
             'per_page': '2',
@@ -215,7 +215,7 @@ topics = {
         "exclude_catalog_ids": "26,98,146,139"
     },
     "JPG + Helmut Lang": {
-        "thread_id": 3412,
+        "thread_id": 344,
         "query": {
             'page': '1',
             'per_page': '2',
@@ -229,7 +229,7 @@ topics = {
     },
 
     "New Rock & Swear": {
-        "thread_id": 4291,
+        "thread_id": 348,
         "query": {
             'page': '1',
             'per_page': '2',
@@ -243,7 +243,7 @@ topics = {
     },
 
     "Dolce&Gabbana верх и аксессуары": {
-        "thread_id": 3540,
+        "thread_id": 354,
         "query": {
             'page': '1',
             'per_page': '2',
