@@ -329,6 +329,59 @@ async def config_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(config_info)
 
+async def get_real_threads_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /getthreads command - get real forum topic IDs"""
+    await update.message.reply_text("🔍 Получаю список реальных топиков форума...")
+    
+    try:
+        bot = Bot(token=Config.telegram_bot_token)
+        
+        # Method to get forum topics (if available in python-telegram-bot)
+        try:
+            # Try to get forum topics using getForumTopicIconStickers
+            url = f"https://api.telegram.org/bot{Config.telegram_bot_token}/getForumTopicIconStickers"
+            response = requests.get(url)
+            
+            if response.status_code == 200:
+                await update.message.reply_text("✅ API доступен для работы с форумами")
+            else:
+                await update.message.reply_text(f"⚠️ Forum API response: {response.status_code}")
+        except Exception as e:
+            await update.message.reply_text(f"Forum API error: {e}")
+        
+        # Alternative method: try to send a test message to various thread IDs
+        await update.message.reply_text("🧪 Тестирую диапазон thread_id от 1 до 20...")
+        
+        working_threads = []
+        url = f"https://api.telegram.org/bot{Config.telegram_bot_token}/sendMessage"
+        
+        for test_id in range(1, 21):
+            params = {
+                "chat_id": Config.telegram_chat_id,
+                "text": f"🧪 Test thread {test_id}",
+                "message_thread_id": test_id
+            }
+            
+            response = requests.post(url, data=params, timeout=10)
+            
+            if response.status_code == 200:
+                working_threads.append(test_id)
+                await update.message.reply_text(f"✅ Thread {test_id} работает!")
+            
+            # Small delay to avoid rate limiting
+            import asyncio
+            await asyncio.sleep(0.5)
+        
+        if working_threads:
+            result = f"✅ Найдены рабочие thread_id: {', '.join(map(str, working_threads))}"
+        else:
+            result = "❌ Не найдено рабочих thread_id в диапазоне 1-20"
+            
+        await update.message.reply_text(result)
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {e}")
+
 async def check_topics_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /checktopics command - check if topics exist"""
     await update.message.reply_text("🔍 Проверяю доступность топиков...")
@@ -376,32 +429,90 @@ async def check_topics_command(update: Update, context: ContextTypes.DEFAULT_TYP
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка: {e}")
 
+async def test_web_thread_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /testwebthread command - test thread from web URL"""
+    args = context.args
+    
+    if not args:
+        await update.message.reply_text("❌ Укажите thread_id из веб-ссылки\nПример: /testwebthread 718")
+        return
+    
+    try:
+        web_thread_id = int(args[0])
+        await update.message.reply_text(f"🧪 Тестирую thread_id {web_thread_id} из веб-ссылки...")
+        
+        # Test the exact thread_id from web URL
+        url = f"https://api.telegram.org/bot{Config.telegram_bot_token}/sendMessage"
+        params = {
+            "chat_id": Config.telegram_chat_id,
+            "text": f"🧪 Тест веб thread_id {web_thread_id}",
+            "message_thread_id": web_thread_id
+        }
+        
+        response = requests.post(url, data=params, timeout=30)
+        
+        if response.status_code == 200:
+            await update.message.reply_text(f"✅ Thread {web_thread_id} работает!")
+        else:
+            error_data = response.json() if response.headers.get('content-type') == 'application/json' else {}
+            error_desc = error_data.get('description', 'Unknown error')
+            await update.message.reply_text(f"❌ Thread {web_thread_id} не работает\nОшибка: {error_desc}")
+            
+            # Try some variations
+            variations = [web_thread_id + 1, web_thread_id - 1, web_thread_id + 100, web_thread_id - 100]
+            await update.message.reply_text(f"🔄 Пробую варианты: {variations}")
+            
+            for var_id in variations:
+                params["message_thread_id"] = var_id
+                params["text"] = f"🧪 Вариант {var_id}"
+                
+                var_response = requests.post(url, data=params, timeout=30)
+                if var_response.status_code == 200:
+                    await update.message.reply_text(f"✅ Вариант {var_id} работает!")
+                    break
+                    
+    except ValueError:
+        await update.message.reply_text("❌ Некорректный thread_id")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {e}")
+
 async def debug_topics_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /debug command - test all topics"""
-    await update.message.reply_text("🔍 Тестирую все топики из конфигурации...")
-    
+    """
+    Автоматически тестирует диапазон thread_id для каждого топика, находит рабочий и предлагает обновить конфиг.
+    """
+    await update.message.reply_text("🤖 Автоматический подбор thread_id для топиков...")
+    import asyncio
+    url = f"https://api.telegram.org/bot{Config.telegram_bot_token}/sendMessage"
     results = []
+    topic_thread_map = {}
     for topic_name, topic_data in Config.topics.items():
-        thread_id = topic_data.get('thread_id')
-        
-        # Send test message to each topic
-        test_title = f"🔍 Debug: {topic_name}"
-        test_price = "Debug EUR"
-        test_url = "https://vinted.com/debug"
-        test_image = "https://images.vinted.net/thumbs/f800/01_00_8c2/01_00_8c2.jpeg"
-        test_size = "Debug"
-        
-        success = send_telegram_message(test_title, test_price, test_url, test_image, test_size, thread_id)
-        
-        status = "✅" if success else "❌"
-        results.append(f"{status} {topic_name} (thread: {thread_id})")
-        
-        # Small delay between messages
-        import asyncio
-        await asyncio.sleep(1)
-    
-    result_text = "📊 Результаты тестирования топиков:\n\n" + "\n".join(results)
+        await update.message.reply_text(f"🔍 Тестирую топик: {topic_name}")
+        found = False
+        for test_id in range(1, 30):
+            params = {
+                "chat_id": Config.telegram_chat_id,
+                "text": f"🧪 Авто-тест {topic_name} thread_id={test_id}",
+                "message_thread_id": test_id
+            }
+            response = requests.post(url, data=params, timeout=10)
+            if response.status_code == 200:
+                results.append(f"✅ {topic_name}: thread_id={test_id}")
+                topic_thread_map[topic_name] = test_id
+                await update.message.reply_text(f"✅ Найден рабочий thread_id={test_id} для {topic_name}")
+                found = True
+                break
+            await asyncio.sleep(0.5)
+        if not found:
+            results.append(f"❌ {topic_name}: не найден рабочий thread_id в диапазоне 1-30")
+            await update.message.reply_text(f"❌ Не найден рабочий thread_id для {topic_name}")
+    result_text = "📊 Авто-результаты:\n\n" + "\n".join(results)
     await update.message.reply_text(result_text)
+    # Предложить обновить конфиг
+    if topic_thread_map:
+        update_text = "\n\nДля обновления Config.py скопируйте эти значения:\n"
+        for topic_name, thread_id in topic_thread_map.items():
+            update_text += f"'{topic_name}': {{'thread_id': {thread_id}, ...}},\n"
+        await update.message.reply_text(update_text)
 
 async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /restart command"""
@@ -482,7 +593,8 @@ def scanner_loop():
                                 # Send Telegram notifications if configured
                                 if Config.telegram_bot_token and Config.telegram_chat_id:
                                     logging.info(f"🚀 SENDING TO TELEGRAM: topic={topic_name}, thread={thread_id}")
-                                    success = send_telegram_message(item_title, item_price, item_url, item_image, item_size, thread_id)
+                                    # TEMPORARILY DISABLE thread_id until we find correct ones
+                                    success = send_telegram_message(item_title, item_price, item_url, item_image, item_size, None)
                                     if success:
                                         logging.info(f"✅ TELEGRAM SUCCESS for {topic_name}")
                                     else:
@@ -528,6 +640,8 @@ async def setup_bot():
     application.add_handler(CommandHandler("chatinfo", chat_info_command))
     application.add_handler(CommandHandler("test", test_command))
     application.add_handler(CommandHandler("testmain", test_main_command))
+    application.add_handler(CommandHandler("getthreads", get_real_threads_command))
+    application.add_handler(CommandHandler("testwebthread", test_web_thread_command))
     application.add_handler(CommandHandler("checktopics", check_topics_command))
     application.add_handler(CommandHandler("config", config_command))
     application.add_handler(CommandHandler("debug", debug_topics_command))
