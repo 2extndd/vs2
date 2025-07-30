@@ -94,14 +94,14 @@ class TelegramAntiBlock:
         self.last_message_time = 0
         
     def safe_delay(self):
-        """СТРОГО 1 СЕКУНДА между сообщениями + защита от флуда"""
+        """СТРОГО 3 СЕКУНДЫ между сообщениями + защита от флуда"""
         self.message_count += 1
         current_time = time.time()
         
-        # Минимум 1 секунда между сообщениями
+        # Минимум 3 секунды между сообщениями
         time_since_last = current_time - self.last_message_time
-        if time_since_last < 1.0:
-            sleep_time = 1.0 - time_since_last
+        if time_since_last < 3.0:
+            sleep_time = 3.0 - time_since_last
             time.sleep(sleep_time)
         
         # Дополнительная защита: каждые 20 сообщений - пауза 3-5 сек
@@ -225,6 +225,11 @@ def send_telegram_message(item_title, item_price, item_url, item_image, item_siz
                 logging.info(f"✅ Sent to topic {thread_id}")
                 return True
             else:
+                # Обработка 429 (Too Many Requests)
+                if response.status_code == 429:
+                    retry_after = response.json().get("parameters", {}).get("retry_after", 30)
+                    logging.warning(f"🚫 TG Rate limit! Waiting {retry_after}s")
+                    time.sleep(retry_after + 2)  # +2 сек запас
                 add_error(f"TG topic: {response.status_code}", "telegram")
         
         # Fallback to main chat
@@ -245,6 +250,11 @@ def send_telegram_message(item_title, item_price, item_url, item_image, item_siz
             logging.info("✅ Sent to main chat")
             return True
         else:
+            # Обработка 429 (Too Many Requests)
+            if response.status_code == 429:
+                retry_after = response.json().get("parameters", {}).get("retry_after", 30)
+                logging.warning(f"🚫 TG Rate limit! Waiting {retry_after}s")
+                time.sleep(retry_after + 2)  # +2 сек запас
             add_error(f"TG main: {response.status_code}", "telegram")
             return False
 
