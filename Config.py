@@ -27,7 +27,7 @@ topics = {
             'order': 'newest_first',
             'price_to': '45',
         },
-        "exclude_catalog_ids": "26, 98, 146, 139"
+        "exclude_catalog_ids": "26,98,146,139"
     },
 
     "bags 2": {
@@ -41,7 +41,7 @@ topics = {
             'order': 'newest_first',
             'price_to': '45',
         },
-        "exclude_catalog_ids": "26, 98, 146, 139"
+        "exclude_catalog_ids": "26,98,146,139"
     },
 
     "Alexander Wang Leather Bags": {
@@ -55,7 +55,7 @@ topics = {
             'order': 'newest_first',
             'price_to': '90',
         },
-        "exclude_catalog_ids": "26, 98, 146, 139"
+        "exclude_catalog_ids": "26,98,146,139"
     },
 
     "Rick Owens": {
@@ -69,7 +69,7 @@ topics = {
             'order': 'newest_first',
             'price_to': '100',
         },
-        "exclude_catalog_ids": "26, 98, 146, 139"
+        "exclude_catalog_ids": "26,98,146,139"
     },
     "Prada": {
         "thread_id": 747,
@@ -82,7 +82,7 @@ topics = {
             'order': 'newest_first',
             'price_to': '80',
         },
-        "exclude_catalog_ids": "26, 98, 146, 139"
+        "exclude_catalog_ids": "26,98,146,139"
     },
     "Isaac Selam + Boris Bidjian": {
         "thread_id": 1229,
@@ -95,7 +95,7 @@ topics = {
             'order': 'newest_first',
             'price_to': '150',
         },
-        "exclude_catalog_ids": "26, 98, 146, 139"
+        "exclude_catalog_ids": "26,98,146,139"
     },
     "Maison Margiela + mm6": {
         "thread_id": 1278,
@@ -108,7 +108,7 @@ topics = {
             'order': 'newest_first',
             'price_to': '100',
         },
-        "exclude_catalog_ids": "26, 98, 146, 139"
+        "exclude_catalog_ids": "26,98,146,139"
     },
     "Raf Simons + ALL": {
         "thread_id": 1351,
@@ -121,7 +121,7 @@ topics = {
             'order': 'newest_first',
             'price_to': '100',
         },
-        "exclude_catalog_ids": "26, 98, 146, 139"
+        "exclude_catalog_ids": "26,98,146,139"
     },
     "Alyx": {
         "thread_id": 2308,
@@ -134,7 +134,7 @@ topics = {
             'order': 'newest_first',
             'price_to': '60',
         },
-        "exclude_catalog_ids": "26, 98, 146, 139"
+        "exclude_catalog_ids": "26,98,146,139"
     },
     "Misbhv": {
         "thread_id": 2308,
@@ -147,7 +147,7 @@ topics = {
             'order': 'newest_first',
             'price_to': '60',
         },
-        "exclude_catalog_ids": "26, 98, 146, 139"
+        "exclude_catalog_ids": "26,98,146,139"
     },
     "Y-3 and Y's": {
         "thread_id": 2394,
@@ -160,7 +160,7 @@ topics = {
             'order': 'newest_first',
             'price_to': '100',
         },
-        "exclude_catalog_ids": "26, 98, 146, 139"
+        "exclude_catalog_ids": "26,98,146,139"
     },
     "Japanese Items and LUX": {
         "thread_id": 2959,
@@ -173,7 +173,7 @@ topics = {
             'order': 'newest_first',
             'price_to': '100',
         },
-        "exclude_catalog_ids": "26, 98, 146, 139"
+        "exclude_catalog_ids": "26,98,146,139"
     },
     "Japanese Items and LUX #2 (типо кэрол, дорогая япония, анн демель и т.д.)": {
         "thread_id": 2959,
@@ -186,7 +186,7 @@ topics = {
             'order': 'newest_first',
             'price_to': '200',
         },
-        "exclude_catalog_ids": "26, 98, 146, 139"
+        "exclude_catalog_ids": "26,98,146,139"
     },
     "Japanese Items and LUX #3 (том кром, дамир дома, крейг грин)": {
         "thread_id": 2959,
@@ -199,7 +199,7 @@ topics = {
             'order': 'newest_first',
             'price_to': '50',
         },
-        "exclude_catalog_ids": "26, 98, 146, 139"
+        "exclude_catalog_ids": "26,98,146,139"
     },
     "CDG + Junya": {
         "thread_id": 2977,
@@ -212,7 +212,7 @@ topics = {
             'order': 'newest_first',
             'price_to': '80',
         },
-        "exclude_catalog_ids": "26, 98, 146, 139"
+        "exclude_catalog_ids": "26,98,146,139"
     },
     "JPG + Helmut Lang": {
         "thread_id": 3412,
@@ -225,7 +225,7 @@ topics = {
             'order': 'newest_first',
             'price_to': '80',
         },
-        "exclude_catalog_ids": "26, 98, 146, 139"
+        "exclude_catalog_ids": "26,98,146,139"
     },
 
     "New Rock & Swear": {
@@ -239,7 +239,7 @@ topics = {
             'order': 'newest_first',
             'price_to': '50',
         },
-        "exclude_catalog_ids": "26, 98, 146, 139"
+        "exclude_catalog_ids": "26,98,146,139"
     },
 
     "Dolce&Gabbana верх и аксессуары": {
@@ -253,7 +253,7 @@ topics = {
             'order': 'newest_first',
             'price_to': '80',
         },
-        "exclude_catalog_ids": "26, 98, 146, 139"
+        "exclude_catalog_ids": "26,98,146,139"
     }
 }
 
