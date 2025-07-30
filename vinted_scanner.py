@@ -277,7 +277,7 @@ async def threadid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /restart command"""
-    global bot_running, scanner_thread
+    global bot_running, scanner_thread, list_analyzed_items
     await update.message.reply_text("🔄 Перезапускаю бота...")
     
     # Stop current scanner
@@ -285,17 +285,30 @@ async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if scanner_thread:
         scanner_thread.join(timeout=5)
     
+    # Clear analyzed items list (restart fresh)
+    old_count = len(list_analyzed_items)
+    list_analyzed_items.clear()
+    
+    # Clear the file as well
+    try:
+        with open("vinted_items.txt", "w") as f:
+            f.write("")
+        logging.info(f"🗑️ Cleared {old_count} analyzed items for fresh restart")
+    except Exception as e:
+        logging.error(f"Error clearing items file: {e}")
+    
     # Restart scanner
     bot_running = True
     scanner_thread = threading.Thread(target=scanner_loop, daemon=True)
     scanner_thread.start()
     
-    await update.message.reply_text("✅ Бот перезапущен")
+    await update.message.reply_text("✅ Бот перезапущен с очищенным списком товаров")
     
     # Send status to main chat
     if Config.telegram_bot_token and Config.telegram_chat_id:
-        items_count = len(list_analyzed_items)
-        status_msg = f"🔄 <b>Бот перезапущен</b>\n📊 Загружено {items_count} ранее проанализированных товаров\n⏰ {datetime.now().strftime('%H:%M:%S')}"
+        # Calculate potential messages
+        total_topics = len(Config.topics)
+        status_msg = f"🔄 <b>Бот перезапущен</b>\n📊 Загружено 0 ранее проанализированных товаров\n🚀 Готово к отправке сообщений из {total_topics} топиков\n⏰ {datetime.now().strftime('%H:%M:%S')}"
         send_bot_status_message(status_msg)
 
 def scanner_loop():
@@ -368,6 +381,8 @@ def scanner_loop():
                                     success = send_telegram_message(item_title, item_price, item_url, item_image, item_size, thread_id)
                                     if success:
                                         logging.info(f"✅ TELEGRAM SUCCESS for {topic_name}")
+                                        # Задержка 1 секунда после отправки в Telegram для избежания бана
+                                        time.sleep(1)
                                     else:
                                         logging.error(f"❌ TELEGRAM FAILED for {topic_name}")
 
@@ -427,7 +442,8 @@ def main():
     # Send startup message to Telegram
     if Config.telegram_bot_token and Config.telegram_chat_id:
         items_count = len(list_analyzed_items)
-        startup_msg = f"🟢 <b>Бот запущен</b>\n📊 Загружено {items_count} ранее проанализированных товаров\n⏰ {datetime.now().strftime('%H:%M:%S')}"
+        total_topics = len(Config.topics)
+        startup_msg = f"🟢 <b>Бот запущен</b>\n📊 Загружено {items_count} ранее проанализированных товаров\n🚀 Готово к отправке сообщений из {total_topics} топиков\n⏰ {datetime.now().strftime('%H:%M:%S')}"
         send_bot_status_message(startup_msg)
     
     # Start scanner in separate thread
