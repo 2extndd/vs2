@@ -261,19 +261,23 @@ async def log_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ Ошибка чтения лога: {e}")
 
 async def threadid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /threadid command"""
-    thread_info = "🧵 Configured Thread IDs:\n"
-    for topic_name, topic_data in list(Config.topics.items())[:10]:
-        thread_info += f"• {topic_name}: {topic_data['thread_id']}\n"
+    """Handle /threadid command - shows thread ID where message was sent"""
+    # Get the thread ID of the current message
+    current_thread_id = update.message.message_thread_id
     
-    if len(Config.topics) > 10:
-        thread_info += f"... и еще {len(Config.topics) - 10} топиков\n"
+    if current_thread_id:
+        # Find topic name by thread_id
+        topic_name = "Unknown"
+        for name, data in Config.topics.items():
+            if data.get('thread_id') == current_thread_id:
+                topic_name = name
+                break
+        
+        response = f"🧵 Thread ID: {current_thread_id}\n📍 Топик: {topic_name}"
+    else:
+        response = "💬 Сообщение отправлено в основной чат\n🧵 Thread ID: None"
     
-    thread_info += f"\n💬 Chat ID: {Config.telegram_chat_id}"
-    thread_info += f"\n🤖 Bot Token: {Config.telegram_bot_token[:20]}..."
-    thread_info += "\n\n⚠️ Если thread_id = None, сообщения идут в основной чат"
-    
-    await update.message.reply_text(thread_info)
+    await update.message.reply_text(response)
 
 async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle /restart command"""
