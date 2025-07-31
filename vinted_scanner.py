@@ -374,7 +374,7 @@ def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
             
             # HTTP запрос через продвинутую систему
             url = f"{Config.vinted_url}/api/v2/catalog/items"
-            data = advanced_system.make_http_request(url, params)
+            data = advanced_system.make_http_request(url, params, cookies)
             
             if data:
                 logging.info(f"✅ ПРОДВИНУТАЯ СИСТЕМА: Found {len(data.get('items', []))} items for {topic_name}")

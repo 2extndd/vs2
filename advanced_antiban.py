@@ -169,7 +169,7 @@ class AdvancedAntiBan:
             self.browser_available = False
             return False
     
-    def make_http_request(self, url: str, params: dict) -> Optional[dict]:
+    def make_http_request(self, url: str, params: dict, cookies: dict = None) -> Optional[dict]:
         """HTTP запрос с антибаном"""
         self.http_requests += 1
         self.session_requests += 1
@@ -189,13 +189,31 @@ class AdvancedAntiBan:
             except Exception as e:
                 logging.error(f"❌ Ошибка автоматической инициализации: {e}")
         
+        # Используем переданные cookies или получаем новые
+        if cookies is None:
+            try:
+                import Config
+                main_url = Config.vinted_url
+                headers = self.get_random_headers()
+                
+                # Получаем cookies через POST запрос
+                self.session.post(main_url, headers=headers, timeout=30)
+                cookies = self.session.cookies.get_dict()
+                logging.info(f"🍪 Получены новые cookies: {cookies}")
+                
+            except Exception as e:
+                logging.warning(f"⚠️ Ошибка получения cookies: {e}")
+                cookies = {}
+        else:
+            logging.info(f"🍪 Используем переданные cookies: {cookies}")
+        
         try:
             # Проверка необходимости обновления сессии
             if (self.session_requests > self.max_session_requests or 
                 time.time() - self.session_created > 1800):  # 30 минут
                 self.refresh_session()
             
-            # Запрос БЕЗ прокси с улучшенными заголовками
+            # Запрос БЕЗ прокси с улучшенными заголовками и cookies
             headers = self.get_random_headers()
             logging.info(f"🌐 Продвинутая система: HTTP запрос к {url}")
             
@@ -204,7 +222,7 @@ class AdvancedAntiBan:
                 params=params,
                 headers=headers,
                 timeout=30,
-                cookies=self.session_cookies
+                cookies=cookies  # Используем свежие cookies
             )
             
             logging.info(f"📊 HTTP статус: {response.status_code}")
