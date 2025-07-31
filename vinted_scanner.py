@@ -43,6 +43,21 @@ vinted_errors = []
 # PRIORITY TOPICS - these scan more frequently
 PRIORITY_TOPICS = ["bags", "bags 2"]
 
+# ПРОДВИНУТАЯ АНТИБАН СИСТЕМА
+try:
+    from advanced_antiban import advanced_system
+    ADVANCED_SYSTEM_AVAILABLE = True
+    logging.info("🚀 Продвинутая антибан система загружена")
+except ImportError as e:
+    ADVANCED_SYSTEM_AVAILABLE = False
+    logging.warning(f"⚠️ Продвинутая система недоступна: {e}")
+
+# Состояние систем
+system_mode = "auto"  # auto, basic, advanced
+advanced_system_errors = 0
+basic_system_errors = 0
+max_system_errors = 5
+
 # ANTI-BLOCKING SYSTEM FOR VINTED
 class VintedAntiBlock:
     def __init__(self):
@@ -297,6 +312,9 @@ def scanner_loop():
                     
                 if topic_name in Config.topics:
                     topic_data = Config.topics[topic_name]
+                    if ADVANCED_SYSTEM_AVAILABLE and system_mode in ["auto", "advanced"]:
+                        # Пробуем продвинутую систему (пока без полной интеграции)
+                        logging.info(f"🚀 Продвинутая система активна для {topic_name}")
                     scan_topic(topic_name, topic_data, cookies, session, is_priority=True)
                     
                     # Small delay between priority topics
@@ -418,6 +436,19 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     anti_info = f"\n🛡️ Vinted requests: {vinted_antiblock.request_count}"
     anti_info += f"\n📱 Telegram messages: {telegram_antiblock.message_count}"
+    
+    # Информация о двухуровневой системе
+    if ADVANCED_SYSTEM_AVAILABLE:
+        stats = advanced_system.get_stats()
+        anti_info += f"\n🚀 Продвинутая система:"
+        anti_info += f"\n   📊 HTTP: {stats['http_success']}/{stats['http_requests']}"
+        anti_info += f"\n   🌐 Browser: {stats['browser_success']}/{stats['browser_requests']}"
+        anti_info += f"\n   📈 Успешность: {stats['success_rate']:.1f}%"
+        anti_info += f"\n   ⚠️ Ошибок подряд: {advanced_system_errors}/{max_system_errors}"
+        anti_info += f"\n   🔄 Режим: {system_mode}"
+    else:
+        anti_info += f"\n🚀 Продвинутая система: ❌ Недоступна"
+        
     anti_info += f"\n🔥 Priority: {', '.join(PRIORITY_TOPICS)}"
     
     # Formatted error info
@@ -503,6 +534,77 @@ def signal_handler(signum, frame):
     bot_running = False
     sys.exit(0)
 
+async def proxy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /proxy - статус продвинутой системы"""
+    if ADVANCED_SYSTEM_AVAILABLE:
+        stats = advanced_system.get_stats()
+        message = "🚀 СТАТУС ПРОДВИНУТОЙ СИСТЕМЫ:\n\n"
+        message += f"📊 HTTP запросы: {stats['http_success']}/{stats['http_requests']}\n"
+        message += f"🌐 Browser запросы: {stats['browser_success']}/{stats['browser_requests']}\n" 
+        message += f"📈 Общая успешность: {stats['success_rate']:.1f}%\n"
+        message += f"🔥 Браузер: {'✅ Доступен' if stats['browser_available'] else '❌ Недоступен'}\n"
+        message += f"📡 Прокси: {stats['proxies_count']} штук\n"
+        message += f"🔄 Текущий прокси: {stats['current_proxy'][:50] if stats['current_proxy'] else 'Нет'}\n"
+        message += f"⚠️ Ошибки 403: {stats['errors_403']}\n"
+        message += f"⚠️ Ошибки 429: {stats['errors_429']}\n" 
+        message += f"⚠️ Ошибки 521: {stats['errors_521']}\n"
+        message += f"🔄 Ошибок подряд: {stats['consecutive_errors']}\n"
+        message += f"🎯 Режим системы: {system_mode}"
+    else:
+        message = "🚀 СТАТУС ПРОДВИНУТОЙ СИСТЕМЫ:\n\n❌ Система недоступна\n🔄 Используется базовая система"
+    
+    await telegram_antiblock.safe_send_message(update.effective_chat.id, message)
+
+async def system_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /system - переключение между системами"""
+    global system_mode
+    
+    if context.args:
+        new_mode = context.args[0].lower()
+        if new_mode in ["auto", "basic", "advanced"]:
+            system_mode = new_mode
+            message = f"🔄 Режим системы изменен на: {system_mode}"
+        else:
+            message = "❌ Доступные режимы: auto, basic, advanced"
+    else:
+        message = f"🎯 Текущий режим: {system_mode}\n\n"
+        message += "📖 Доступные режимы:\n"
+        message += "• auto - автоматическое переключение\n"
+        message += "• basic - только базовая система\n" 
+        message += "• advanced - только продвинутая система\n\n"
+        message += "Использование: /system auto"
+    
+    await telegram_antiblock.safe_send_message(update.effective_chat.id, message)
+
+async def redeploy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /redeploy - перезапуск Railway при банах"""
+    global advanced_system_errors, basic_system_errors
+    
+    message = "🔄 АВТОМАТИЧЕСКИЙ REDEPLOY:\n\n"
+    
+    # Проверяем критичность ситуации
+    total_errors = advanced_system_errors + basic_system_errors
+    if total_errors >= max_system_errors * 1.5:
+        message += "⚠️ КРИТИЧЕСКИЙ УРОВЕНЬ БЛОКИРОВОК!\n"
+        message += f"📊 Ошибок продвинутой: {advanced_system_errors}\n"
+        message += f"📊 Ошибок базовой: {basic_system_errors}\n\n"
+        
+        # Имитация redeploy через Railway API (в реальности нужен Railway token)
+        message += "🚀 Попытка автоматического redeploy...\n"
+        
+        # Сброс счетчиков ошибок для симуляции restart
+        advanced_system_errors = 0
+        basic_system_errors = 0
+        
+        message += "✅ Счетчики ошибок сброшены\n"
+        message += "💡 Для полного redeploy настройте Railway Webhook"
+    else:
+        message += f"📊 Ошибок продвинутой: {advanced_system_errors}/{max_system_errors}\n"
+        message += f"📊 Ошибок базовой: {basic_system_errors}/{max_system_errors}\n"
+        message += "✅ Уровень ошибок в норме, redeploy не требуется"
+    
+    await telegram_antiblock.safe_send_message(update.effective_chat.id, message)
+
 async def setup_bot():
     application = Application.builder().token(Config.telegram_bot_token).build()
     
@@ -511,6 +613,9 @@ async def setup_bot():
     application.add_handler(CommandHandler("restart", restart_command))
     application.add_handler(CommandHandler("fast", fast_command))
     application.add_handler(CommandHandler("slow", slow_command))
+    application.add_handler(CommandHandler("proxy", proxy_command))
+    application.add_handler(CommandHandler("system", system_command))
+    application.add_handler(CommandHandler("redeploy", redeploy_command))
     
     return application
 

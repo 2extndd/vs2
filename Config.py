@@ -14,6 +14,37 @@ telegram_chat_id = "-1002742804558"
 # Vinted URL: change the TLD according to your country (.fr, .es, etc.)
 vinted_url = "https://www.vinted.de"
 
+# ПРОДВИНУТАЯ АНТИБАН СИСТЕМА
+# Настройки прокси для ротации
+proxy_config = {
+    "proxies": [
+        {
+            "host": "175.110.113.236",
+            "port": 16225,
+            "username": "zNWFMSKz",
+            "password": "DGXYtqmK"
+        },
+        {
+            "host": "102.210.251.226", 
+            "port": 16225,
+            "username": "zNWFMSKz",
+            "password": "DGXYtqmK"
+        },
+        {
+            "host": "146.19.241.14",
+            "port": 16225, 
+            "username": "zNWFMSKz",
+            "password": "DGXYtqmK"
+        },
+        {
+            "host": "188.130.155.155",
+            "port": 16225,
+            "username": "zNWFMSKz", 
+            "password": "DGXYtqmK"
+        }
+    ]
+}
+
 # Список топиков и параметров для поиска
 topics = {
     "bags": {

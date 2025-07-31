@@ -1,1 +1,1 @@
-worker: . /opt/venv/bin/activate && python vinted_scanner.py
+worker: playwright install chromium && python vinted_scanner.py
