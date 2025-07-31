@@ -49,7 +49,7 @@ topics = {
     },
 
     "Alexander Wang Leather Bags": {
-        "thread_id": 190,
+        "thread_id": 334,
         "query": {
             'page': '1',
             'per_page': '2',
@@ -239,7 +239,7 @@ topics = {
             'per_page': '2',
             'search_text': '',
             'catalog_ids': '1231',
-            'brand_ids': '432, 324572, 12377',
+            'brand_ids': '432, 324572, 278655, 469667',
             'order': 'newest_first',
             'price_to': '50',
         },
