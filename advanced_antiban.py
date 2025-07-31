@@ -64,20 +64,14 @@ class AdvancedAntiBan:
         pass
     
     def get_random_headers(self):
-        """Генерация случайных заголовков как у настоящего браузера"""
+        """Генерация заголовков для API запросов (как в базовой системе)"""
         return {
             "User-Agent": self.ua.random,
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9,de;q=0.8,ru;q=0.7",
-            "Accept-Encoding": "gzip, deflate, br",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "en-US,en;q=0.9",
             "DNT": "1",
             "Connection": "keep-alive",
-            "Upgrade-Insecure-Requests": "1",
-            "Sec-Fetch-Dest": "document",
-            "Sec-Fetch-Mode": "navigate",
-            "Sec-Fetch-Site": "none",
-            "Cache-Control": "no-cache",
-            "Pragma": "no-cache"
+            "Cache-Control": "no-cache"
         }
     
     def human_delay(self):
