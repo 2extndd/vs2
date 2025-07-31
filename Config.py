@@ -14,6 +14,19 @@ telegram_chat_id = "-1002742804558"
 # Vinted URL: change the TLD according to your country (.fr, .es, etc.)
 vinted_url = "https://www.vinted.de"
 
+# Reservation System Configuration
+reservation_enabled = True  # Включить/выключить систему резервирования
+reservation_test_account = {
+    "email": "test@example.com",  # Email тестового аккаунта
+    "password": "test_password",   # Пароль тестового аккаунта
+    "session_cookies": {},         # Сессионные cookies (автозаполнение)
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+}
+
+# Reservation settings
+reservation_timeout = 900  # 15 минут в секундах
+reservation_max_items = 5  # Максимальное количество резервируемых товаров
+
 # Список топиков и параметров для поиска
 topics = {
     "bags": {

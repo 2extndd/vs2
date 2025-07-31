@@ -170,6 +170,142 @@ class TelegramAntiBlock:
 vinted_antiblock = VintedAntiBlock()
 telegram_antiblock = TelegramAntiBlock()
 
+# Reservation System
+class VintedReservation:
+    def __init__(self):
+        self.reserved_items = {}  # {item_id: {"url": "", "reserved_at": timestamp, "paypal_url": ""}}
+        self.session = None
+        self.is_logged_in = False
+        
+    def login_to_vinted(self):
+        """Вход в тестовый аккаунт Vinted"""
+        if not Config.reservation_enabled:
+            return False
+            
+        try:
+            self.session = requests.Session()
+            headers = {
+                "User-Agent": Config.reservation_test_account["user_agent"],
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.5",
+                "Accept-Encoding": "gzip, deflate, br",
+                "DNT": "1",
+                "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1"
+            }
+            
+            # Получаем страницу входа
+            login_url = f"{Config.vinted_url}/login"
+            response = self.session.get(login_url, headers=headers, timeout=30)
+            
+            if response.status_code != 200:
+                logging.error(f"❌ Не удалось получить страницу входа: {response.status_code}")
+                return False
+            
+            # Здесь должна быть логика входа (CSRF токен, отправка формы)
+            # Пока что используем готовые cookies если есть
+            if Config.reservation_test_account["session_cookies"]:
+                self.session.cookies.update(Config.reservation_test_account["session_cookies"])
+                self.is_logged_in = True
+                logging.info("✅ Использованы готовые cookies для входа")
+                return True
+            
+            logging.warning("⚠️ Требуется настройка входа в аккаунт")
+            return False
+            
+        except Exception as e:
+            logging.error(f"❌ Ошибка входа в Vinted: {str(e)[:50]}")
+            return False
+    
+    def reserve_item(self, item_url, item_title):
+        """Резервирование товара через PayPal"""
+        if not self.is_logged_in:
+            if not self.login_to_vinted():
+                return None
+        
+        try:
+            # Получаем страницу товара
+            response = self.session.get(item_url, timeout=30)
+            if response.status_code != 200:
+                logging.error(f"❌ Не удалось получить страницу товара: {response.status_code}")
+                return None
+            
+            # Извлекаем item_id из URL
+            item_id = item_url.split('/')[-1]
+            
+            # Проверяем, не забронирован ли уже товар
+            if item_id in self.reserved_items:
+                existing = self.reserved_items[item_id]
+                time_passed = time.time() - existing["reserved_at"]
+                if time_passed < Config.reservation_timeout:
+                    remaining = Config.reservation_timeout - time_passed
+                    logging.info(f"⚠️ Товар уже забронирован на {remaining:.0f} секунд")
+                    return existing["paypal_url"]
+            
+            # Проверяем лимит резервирований
+            active_reservations = len([r for r in self.reserved_items.values() 
+                                     if time.time() - r["reserved_at"] < Config.reservation_timeout])
+            
+            if active_reservations >= Config.reservation_max_items:
+                logging.warning(f"⚠️ Достигнут лимит резервирований ({Config.reservation_max_items})")
+                return None
+            
+            # Здесь должна быть логика резервирования через PayPal
+            # Пока что создаем заглушку
+            paypal_url = f"{Config.vinted_url}/checkout/{item_id}/paypal"
+            
+            # Сохраняем информацию о резервировании
+            self.reserved_items[item_id] = {
+                "url": item_url,
+                "title": item_title,
+                "reserved_at": time.time(),
+                "paypal_url": paypal_url
+            }
+            
+            logging.info(f"✅ Товар забронирован: {item_title}")
+            return paypal_url
+            
+        except Exception as e:
+            logging.error(f"❌ Ошибка резервирования товара: {str(e)[:50]}")
+            return None
+    
+    def get_reservation_status(self, item_id):
+        """Получить статус резервирования товара"""
+        if item_id not in self.reserved_items:
+            return None
+        
+        reservation = self.reserved_items[item_id]
+        time_passed = time.time() - reservation["reserved_at"]
+        
+        if time_passed >= Config.reservation_timeout:
+            # Удаляем истекшее резервирование
+            del self.reserved_items[item_id]
+            return None
+        
+        return {
+            "remaining_time": Config.reservation_timeout - time_passed,
+            "paypal_url": reservation["paypal_url"],
+            "title": reservation["title"]
+        }
+    
+    def cleanup_expired_reservations(self):
+        """Очистка истекших резервирований"""
+        current_time = time.time()
+        expired_items = []
+        
+        for item_id, reservation in self.reserved_items.items():
+            if current_time - reservation["reserved_at"] >= Config.reservation_timeout:
+                expired_items.append(item_id)
+        
+        for item_id in expired_items:
+            del self.reserved_items[item_id]
+            logging.info(f"🗑️ Удалено истекшее резервирование: {item_id}")
+        
+        return len(expired_items)
+
+# Global reservation instance
+reservation_system = VintedReservation()
+
 def load_analyzed_item():
     try:
         with open("vinted_items.txt", "r", errors="ignore") as f:
@@ -385,6 +521,12 @@ def scanner_loop():
                     time.sleep(random.uniform(0.3, 1.0))
 
             # СУПЕРБЫСТРЫЕ интервалы между циклами
+            # Очистка истекших резервирований
+            if Config.reservation_enabled:
+                expired_count = reservation_system.cleanup_expired_reservations()
+                if expired_count > 0:
+                    logging.info(f"🗑️ Очищено {expired_count} истекших резервирований")
+            
             if bot_running:
                 if scan_mode == "fast":
                     # Fast mode: Priority topics every 5-7s, normal every 10-15s
@@ -768,6 +910,252 @@ async def debug_filter_command(update: Update, context: ContextTypes.DEFAULT_TYP
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка отладки: {str(e)[:100]}")
 
+async def reserve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Резервирование товара по команде /reserve <item_url>"""
+    try:
+        if not context.args:
+            await update.message.reply_text("❌ Укажите ссылку на товар: /reserve <ссылка>")
+            return
+        
+        item_url = context.args[0]
+        
+        # Проверяем, что это ссылка на Vinted
+        if not item_url.startswith(Config.vinted_url):
+            await update.message.reply_text("❌ Это не ссылка на Vinted!")
+            return
+        
+        await update.message.reply_text("🔄 Резервирую товар...")
+        
+        # Извлекаем item_id из URL
+        item_id = item_url.split('/')[-1]
+        
+        # Проверяем текущий статус
+        status = reservation_system.get_reservation_status(item_id)
+        if status:
+            remaining_minutes = int(status["remaining_time"] // 60)
+            remaining_seconds = int(status["remaining_time"] % 60)
+            await update.message.reply_text(
+                f"⚠️ Товар уже забронирован!\n"
+                f"⏰ Осталось: {remaining_minutes}:{remaining_seconds:02d}\n"
+                f"🔗 PayPal: {status['paypal_url']}"
+            )
+            return
+        
+        # Резервируем товар
+        paypal_url = reservation_system.reserve_item(item_url, "Товар")
+        
+        if paypal_url:
+            await update.message.reply_text(
+                f"✅ Товар забронирован на 15 минут!\n"
+                f"🔗 PayPal: {paypal_url}\n"
+                f"⏰ Время: {datetime.now().strftime('%H:%M:%S')}"
+            )
+            
+            # Запускаем отсчет времени
+            asyncio.create_task(reservation_countdown(item_id, item_url, update.message.chat_id))
+        else:
+            await update.message.reply_text("❌ Не удалось забронировать товар")
+            
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка резервирования: {str(e)[:100]}")
+
+async def reservation_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать статус всех резервирований"""
+    try:
+        if not reservation_system.reserved_items:
+            await update.message.reply_text("📋 Нет активных резервирований")
+            return
+        
+        status_msg = "📋 <b>Активные резервирования:</b>\n\n"
+        
+        for item_id, reservation in reservation_system.reserved_items.items():
+            time_passed = time.time() - reservation["reserved_at"]
+            remaining_time = Config.reservation_timeout - time_passed
+            
+            if remaining_time > 0:
+                remaining_minutes = int(remaining_time // 60)
+                remaining_seconds = int(remaining_time % 60)
+                status_msg += f"🕐 {reservation['title']}\n"
+                status_msg += f"⏰ Осталось: {remaining_minutes}:{remaining_seconds:02d}\n"
+                status_msg += f"🔗 PayPal: {reservation['paypal_url']}\n\n"
+        
+        await update.message.reply_text(status_msg, parse_mode="HTML")
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка получения статуса: {str(e)[:100]}")
+
+async def reservation_countdown(item_id, item_url, chat_id):
+    """Отсчет времени резервирования с реалтайм обновлениями"""
+    try:
+        # Получаем bot из глобального контекста
+        from telegram.ext import Application
+        app = Application.get_current()
+        bot = app.bot
+        
+        # Отправляем начальное сообщение
+        message = await bot.send_message(
+            chat_id=chat_id,
+            text=f"⏰ <b>Отсчет резервирования</b>\n"
+                 f"🔗 Товар: {item_url}\n"
+                 f"⏱️ Осталось: 15:00",
+            parse_mode="HTML"
+        )
+        
+        while True:
+            await asyncio.sleep(30)  # Обновляем каждые 30 секунд
+            
+            # Проверяем статус резервирования
+            status = reservation_system.get_reservation_status(item_id)
+            if not status:
+                # Резервирование истекло
+                await bot.edit_message_text(
+                    chat_id=chat_id,
+                    message_id=message.message_id,
+                    text=f"⏰ <b>Резервирование истекло!</b>\n"
+                         f"🔗 Товар: {item_url}\n"
+                         f"⏱️ Время: {datetime.now().strftime('%H:%M:%S')}",
+                    parse_mode="HTML"
+                )
+                break
+            
+            # Обновляем сообщение с оставшимся временем
+            remaining_minutes = int(status["remaining_time"] // 60)
+            remaining_seconds = int(status["remaining_time"] % 60)
+            
+            await bot.edit_message_text(
+                chat_id=chat_id,
+                message_id=message.message_id,
+                text=f"⏰ <b>Отсчет резервирования</b>\n"
+                     f"🔗 Товар: {item_url}\n"
+                     f"⏱️ Осталось: {remaining_minutes}:{remaining_seconds:02d}",
+                parse_mode="HTML"
+            )
+            
+    except Exception as e:
+        logging.error(f"❌ Ошибка отсчета времени: {str(e)[:50]}")
+
+async def reply_reserve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Резервирование товара по reply на сообщение с товаром"""
+    try:
+        # Проверяем, что это reply на сообщение
+        if not update.message.reply_to_message:
+            await update.message.reply_text("❌ Ответьте на сообщение с товаром командой /reserve")
+            return
+        
+        # Ищем ссылку на Vinted в исходном сообщении
+        original_text = update.message.reply_to_message.text
+        vinted_links = []
+        
+        # Простая проверка на ссылки Vinted
+        words = original_text.split()
+        for word in words:
+            if word.startswith(Config.vinted_url):
+                vinted_links.append(word)
+        
+        if not vinted_links:
+            await update.message.reply_text("❌ В сообщении нет ссылки на Vinted")
+            return
+        
+        item_url = vinted_links[0]
+        await update.message.reply_text("🔄 Резервирую товар...")
+        
+        # Извлекаем item_id из URL
+        item_id = item_url.split('/')[-1]
+        
+        # Проверяем текущий статус
+        status = reservation_system.get_reservation_status(item_id)
+        if status:
+            remaining_minutes = int(status["remaining_time"] // 60)
+            remaining_seconds = int(status["remaining_time"] % 60)
+            await update.message.reply_text(
+                f"⚠️ Товар уже забронирован!\n"
+                f"⏰ Осталось: {remaining_minutes}:{remaining_seconds:02d}\n"
+                f"🔗 PayPal: {status['paypal_url']}"
+            )
+            return
+        
+        # Резервируем товар
+        paypal_url = reservation_system.reserve_item(item_url, "Товар")
+        
+        if paypal_url:
+            await update.message.reply_text(
+                f"✅ Товар забронирован на 15 минут!\n"
+                f"🔗 PayPal: {paypal_url}\n"
+                f"⏰ Время: {datetime.now().strftime('%H:%M:%S')}"
+            )
+            
+            # Запускаем отсчет времени
+            asyncio.create_task(reservation_countdown(item_id, item_url, update.message.chat_id))
+        else:
+            await update.message.reply_text("❌ Не удалось забронировать товар")
+            
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка резервирования: {str(e)[:100]}")
+
+async def unified_reserve_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Унифицированная команда резервирования"""
+    try:
+        # Если есть аргументы - используем их как ссылку
+        if context.args:
+            item_url = context.args[0]
+        # Если это reply на сообщение - извлекаем ссылку из него
+        elif update.message.reply_to_message:
+            original_text = update.message.reply_to_message.text
+            vinted_links = []
+            words = original_text.split()
+            for word in words:
+                if word.startswith(Config.vinted_url):
+                    vinted_links.append(word)
+            
+            if not vinted_links:
+                await update.message.reply_text("❌ В сообщении нет ссылки на Vinted")
+                return
+            
+            item_url = vinted_links[0]
+        else:
+            await update.message.reply_text("❌ Укажите ссылку или ответьте на сообщение с товаром: /reserve <ссылка>")
+            return
+        
+        # Проверяем, что это ссылка на Vinted
+        if not item_url.startswith(Config.vinted_url):
+            await update.message.reply_text("❌ Это не ссылка на Vinted!")
+            return
+        
+        await update.message.reply_text("🔄 Резервирую товар...")
+        
+        # Извлекаем item_id из URL
+        item_id = item_url.split('/')[-1]
+        
+        # Проверяем текущий статус
+        status = reservation_system.get_reservation_status(item_id)
+        if status:
+            remaining_minutes = int(status["remaining_time"] // 60)
+            remaining_seconds = int(status["remaining_time"] % 60)
+            await update.message.reply_text(
+                f"⚠️ Товар уже забронирован!\n"
+                f"⏰ Осталось: {remaining_minutes}:{remaining_seconds:02d}\n"
+                f"🔗 PayPal: {status['paypal_url']}"
+            )
+            return
+        
+        # Резервируем товар
+        paypal_url = reservation_system.reserve_item(item_url, "Товар")
+        
+        if paypal_url:
+            await update.message.reply_text(
+                f"✅ Товар забронирован на 15 минут!\n"
+                f"🔗 PayPal: {paypal_url}\n"
+                f"⏰ Время: {datetime.now().strftime('%H:%M:%S')}"
+            )
+            
+            # Запускаем отсчет времени
+            asyncio.create_task(reservation_countdown(item_id, item_url, update.message.chat_id))
+        else:
+            await update.message.reply_text("❌ Не удалось забронировать товар")
+            
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка резервирования: {str(e)[:100]}")
+
 
 
 def signal_handler(signum, frame):
@@ -787,7 +1175,9 @@ async def setup_bot():
     application.add_handler(CommandHandler("slow", slow_command))
     application.add_handler(CommandHandler("chatinfo", chatinfo_command))
     application.add_handler(CommandHandler("vinted", vinted_status_command))
-    application.add_handler(CommandHandler("debug", debug_filter_command))    
+    application.add_handler(CommandHandler("debug", debug_filter_command))
+    application.add_handler(CommandHandler("reserve", unified_reserve_command))
+    application.add_handler(CommandHandler("reservations", reservation_status_command))    
     return application
 
 def main():
