@@ -39,6 +39,7 @@ scan_mode = "fast"  # "fast" = 5-7s priority, 10-15s normal, "slow" = 15-20s pri
 last_errors = []
 telegram_errors = []
 vinted_errors = []
+vinted_521_count = 0  # Счетчик ошибок 521
 
 # PRIORITY TOPICS - these scan more frequently
 PRIORITY_TOPICS = ["bags", "bags 2"]
@@ -66,7 +67,7 @@ class VintedAntiBlock:
         }
 
     def delay(self):
-        """Быстрые задержки 0.5-2 сек"""
+        """Задержки между запросами"""
         self.request_count += 1
         delay = random.uniform(0.5, 2.0)
         if self.request_count % 10 == 0:
@@ -74,7 +75,7 @@ class VintedAntiBlock:
         time.sleep(delay)
 
     def handle_errors(self, response):
-        """Обработка ошибок"""
+        """Обработка ошибок HTTP"""
         if response.status_code == 429:
             wait = random.uniform(60, 120)
             logging.warning(f"Rate limit! Wait {wait:.0f}s")
@@ -83,6 +84,26 @@ class VintedAntiBlock:
         elif response.status_code in [403, 503]:
             wait = random.uniform(30, 60)
             logging.warning(f"Blocked! Wait {wait:.0f}s")
+            time.sleep(wait)
+            return True
+        elif response.status_code == 521:
+            global vinted_521_count
+            vinted_521_count += 1
+            
+            # Увеличиваем время ожидания с каждой ошибкой
+            if vinted_521_count <= 3:
+                wait = random.uniform(120, 300)  # 2-5 минут
+            elif vinted_521_count <= 5:
+                wait = random.uniform(300, 600)  # 5-10 минут
+            else:
+                wait = random.uniform(600, 1200)  # 10-20 минут
+            
+            logging.error(f"❌ Vinted сервер недоступен (521)! Ошибка #{vinted_521_count}, ждем {wait:.0f} секунд")
+            time.sleep(wait)
+            return True
+        elif response.status_code in [500, 502, 504]:
+            wait = random.uniform(60, 180)  # 1-3 minutes for server errors
+            logging.warning(f"Server error {response.status_code}! Wait {wait:.0f}s")
             time.sleep(wait)
             return True
         return False
@@ -94,7 +115,7 @@ class TelegramAntiBlock:
         self.last_message_time = 0
         
     def safe_delay(self):
-        """СТРОГО 3 СЕКУНДЫ между сообщениями + защита от флуда"""
+        """Защита от флуда - 3 секунды между сообщениями"""
         self.message_count += 1
         current_time = time.time()
         
@@ -190,7 +211,7 @@ def send_slack_message(item_title, item_price, item_url, item_image, item_size=N
 
 def send_telegram_message(item_title, item_price, item_url, item_image, item_size=None, thread_id=None):
     try:
-        # АНТИБАН ПАУЗА 1 СЕКУНДА + защита от флуда
+        # Защита от флуда
         telegram_antiblock.safe_delay()
         
         size_text = f"\n👕 {item_size}" if item_size else ""
@@ -262,8 +283,8 @@ def send_telegram_message(item_title, item_price, item_url, item_image, item_siz
         add_error(f"TG: {str(e)[:30]}", "telegram")
         return False
 
-def should_exclude_item(item, exclude_catalog_ids):
-    """ИСПРАВЛЕННАЯ функция фильтрации"""
+def should_exclude_item(item, exclude_catalog_ids, topic_name=""):
+    """Проверка исключения товара по catalog_id"""
     if not exclude_catalog_ids:
         return False
     
@@ -277,12 +298,12 @@ def should_exclude_item(item, exclude_catalog_ids):
     is_excluded = item_catalog_str in exclude_list
     
     if is_excluded:
-        logging.info(f"🚫 EXCLUDED: catalog_id={item_catalog_str}")
+        logging.info(f"🚫 EXCLUDED [{topic_name}]: catalog_id={item_catalog_str}")
     
     return is_excluded
 
 def scanner_loop():
-    """СУПЕРБЫСТРЫЙ scanner с приоритетными топиками"""
+    """Основной цикл сканирования"""
     global bot_running
     
     while bot_running:
@@ -347,9 +368,23 @@ def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
     priority_mark = "��" if is_priority else ""
     logging.info(f"Scanning{priority_mark}: {topic_name}")
     
-    params = topic_data["query"]
+    params = topic_data["query"].copy()  # Копируем параметры
     exclude_catalog_ids = topic_data.get("exclude_catalog_ids", "")
     thread_id = topic_data.get("thread_id")
+    
+    # Исключаем catalog_ids из запроса, если они конфликтуют
+    if exclude_catalog_ids and params.get("catalog_ids"):
+        query_catalog_ids = params["catalog_ids"]
+        exclude_list = [id.strip() for id in exclude_catalog_ids.split(',') if id.strip()]
+        query_list = [id.strip() for id in query_catalog_ids.split(',') if id.strip()]
+        
+        # Убираем исключаемые ID из запроса
+        filtered_query_list = [id for id in query_list if id not in exclude_list]
+        
+        if filtered_query_list != query_list:
+            removed_ids = set(query_list) - set(filtered_query_list)
+            logging.info(f"🔧 [{topic_name}] Убрал из запроса: {removed_ids}")
+            params["catalog_ids"] = ','.join(filtered_query_list)
     
     # Get new headers for each topic
     topic_headers = vinted_antiblock.get_headers()
@@ -368,17 +403,23 @@ def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
         return
     
     if response.status_code == 200:
+        # Сбрасываем счетчик ошибок 521 при успешном запросе
+        global vinted_521_count
+        if vinted_521_count > 0:
+            logging.info(f"✅ Vinted снова доступен! Сбрасываем счетчик ошибок 521")
+            vinted_521_count = 0
+        
         data = response.json()
 
         if data and "items" in data:
-            logging.info(f"Found {len(data['items'])} items")
+            logging.info(f"Found {len(data['items'])} items for {topic_name}")
             
             for item in data["items"]:
                 if not bot_running:
                     break
                     
-                # ИСПРАВЛЕННАЯ проверка исключений
-                if should_exclude_item(item, exclude_catalog_ids):
+                # Проверка исключений
+                if should_exclude_item(item, exclude_catalog_ids, topic_name):
                     continue
                     
                 item_id = str(item["id"])
@@ -401,7 +442,6 @@ def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
                         send_slack_message(item_title, item_price, item_url, item_image, item_size)
 
                     if Config.telegram_bot_token and Config.telegram_chat_id:
-                        # АНТИБАН TELEGRAM ВКЛЮЧЕН В ФУНКЦИИ
                         success = send_telegram_message(item_title, item_price, item_url, item_image, item_size, thread_id)
 
                     # Save item
@@ -410,8 +450,12 @@ def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
         else:
             logging.warning(f"No items: {topic_name}")
     else:
-        logging.error(f"Error {response.status_code}: {topic_name}")
-        add_error(f"HTTP {response.status_code}", "vinted")
+        if response.status_code == 521:
+            logging.error(f"❌ Vinted сервер недоступен (521) для топика: {topic_name}")
+            add_error(f"HTTP 521 - сервер недоступен", "vinted")
+        else:
+            logging.error(f"Ошибка {response.status_code}: {topic_name}")
+            add_error(f"HTTP {response.status_code}", "vinted")
 
 # Telegram bot commands
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -429,6 +473,8 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     anti_info = f"\n🛡️ Vinted requests: {vinted_antiblock.request_count}"
     anti_info += f"\n📱 Telegram messages: {telegram_antiblock.message_count}"
     anti_info += f"\n🔥 Priority: {', '.join(PRIORITY_TOPICS)}"
+    if vinted_521_count > 0:
+        anti_info += f"\n⚠️ 521 errors: {vinted_521_count}"
     
     # Formatted error info
     error_info = ""
@@ -607,9 +653,73 @@ async def chatinfo_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка диагностики: {e}")
-    global scan_mode
-    scan_mode = "slow"
-    await update.message.reply_text("🐌 SLOW mode: 15-20s priority, 30-45s normal")
+
+async def vinted_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Проверка статуса Vinted API"""
+    try:
+        await update.message.reply_text("🔍 Проверяю статус Vinted API...")
+        
+        headers = vinted_antiblock.get_headers()
+        session = requests.Session()
+        
+        # Проверяем основной сайт
+        try:
+            response = session.get(Config.vinted_url, headers=headers, timeout=10)
+            main_status = f"✅ Доступен ({response.status_code})" if response.status_code == 200 else f"❌ Ошибка ({response.status_code})"
+        except Exception as e:
+            main_status = f"❌ Ошибка подключения: {str(e)[:50]}"
+        
+        # Проверяем API
+        try:
+            test_params = {'page': '1', 'per_page': '1'}
+            response = session.get(f"{Config.vinted_url}/api/v2/catalog/items", 
+                                  params=test_params, headers=headers, timeout=10)
+            api_status = f"✅ Работает ({response.status_code})" if response.status_code == 200 else f"❌ Ошибка ({response.status_code})"
+        except Exception as e:
+            api_status = f"❌ Ошибка API: {str(e)[:50]}"
+        
+        status_msg = f"🌐 <b>Статус Vinted</b>\n"
+        status_msg += f"📱 Основной сайт: {main_status}\n"
+        status_msg += f"🔗 API: {api_status}\n"
+        status_msg += f"⏰ Время: {datetime.now().strftime('%H:%M:%S')}"
+        
+        await update.message.reply_text(status_msg, parse_mode="HTML")
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка проверки: {str(e)[:100]}")
+
+async def debug_filter_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Отладка фильтрации - показывает конфликты между include и exclude"""
+    try:
+        debug_msg = "🔍 <b>Отладка фильтрации</b>\n\n"
+        
+        for topic_name, topic_data in Config.topics.items():
+            query_catalog_ids = topic_data["query"].get("catalog_ids", "")
+            exclude_catalog_ids = topic_data.get("exclude_catalog_ids", "")
+            
+            if query_catalog_ids and exclude_catalog_ids:
+                # Проверяем конфликты
+                query_list = [id.strip() for id in query_catalog_ids.split(',') if id.strip()]
+                exclude_list = [id.strip() for id in exclude_catalog_ids.split(',') if id.strip()]
+                
+                conflicts = [id for id in exclude_list if id in query_list]
+                
+                if conflicts:
+                    debug_msg += f"⚠️ <b>{topic_name}</b>\n"
+                    debug_msg += f"📥 Include: {query_catalog_ids}\n"
+                    debug_msg += f"📤 Exclude: {exclude_catalog_ids}\n"
+                    debug_msg += f"🚫 Конфликты: {', '.join(conflicts)}\n\n"
+                else:
+                    debug_msg += f"✅ <b>{topic_name}</b> - без конфликтов\n\n"
+            else:
+                debug_msg += f"ℹ️ <b>{topic_name}</b> - нет фильтров\n\n"
+        
+        await update.message.reply_text(debug_msg, parse_mode="HTML")
+        
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка отладки: {str(e)[:100]}")
+
+
 
 def signal_handler(signum, frame):
     global bot_running
@@ -626,7 +736,9 @@ async def setup_bot():
     application.add_handler(CommandHandler("restart", restart_command))
     application.add_handler(CommandHandler("fast", fast_command))
     application.add_handler(CommandHandler("slow", slow_command))
-    application.add_handler(CommandHandler("chatinfo", chatinfo_command))    
+    application.add_handler(CommandHandler("chatinfo", chatinfo_command))
+    application.add_handler(CommandHandler("vinted", vinted_status_command))
+    application.add_handler(CommandHandler("debug", debug_filter_command))    
     return application
 
 def main():
