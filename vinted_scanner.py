@@ -170,14 +170,21 @@ class TelegramAntiBlock:
 vinted_antiblock = VintedAntiBlock()
 telegram_antiblock = TelegramAntiBlock()
 
-# Импорт новой антибан системы
+# Импорт антибан систем
 try:
-    from antiban import antiban_system
+    from antiban_fast import fast_antiban_system
     ADVANCED_ANTIBAN = True
-    logging.info("🚀 Продвинутая антибан система загружена")
+    antiban_system = fast_antiban_system
+    logging.info("🚀 Быстрая антибан система загружена")
 except ImportError:
-    ADVANCED_ANTIBAN = False
-    logging.warning("⚠️ Продвинутая антибан система недоступна, используется базовая")
+    try:
+        from antiban_simple import simple_antiban_system
+        ADVANCED_ANTIBAN = True
+        antiban_system = simple_antiban_system
+        logging.info("🚀 Упрощенная антибан система загружена")
+    except ImportError:
+        ADVANCED_ANTIBAN = False
+        logging.warning("⚠️ Антибан система недоступна, используется базовая")
 
 # Reservation System
 class VintedReservation:
@@ -576,82 +583,131 @@ def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
             logging.info(f"🔧 [{topic_name}] Убрал из запроса: {removed_ids}")
             params["catalog_ids"] = ','.join(filtered_query_list)
     
-    # Get new headers for each topic
-    topic_headers = vinted_antiblock.get_headers()
-    
-    # Request with anti-blocking
-    response = requests.get(
-        f"{Config.vinted_url}/api/v2/catalog/items", 
-        params=params, 
-        cookies=cookies, 
-        headers=topic_headers,
-        timeout=timeoutconnection
-    )
-
-    # Handle errors
-    if vinted_antiblock.handle_errors(response):
-        return
-    
-    if response.status_code == 200:
-        # Сбрасываем счетчик ошибок 521 при успешном запросе
-        global vinted_521_count
-        if vinted_521_count > 0:
-            logging.info(f"✅ Vinted снова доступен! Сбрасываем счетчик ошибок 521")
-            vinted_521_count = 0
-        
-        # Отслеживаем успешные запросы
-        vinted_antiblock.success_count += 1
-        
-        data = response.json()
-
-        if data and "items" in data:
-            logging.info(f"Found {len(data['items'])} items for {topic_name}")
+    # Используем антибан систему если доступна
+    if ADVANCED_ANTIBAN:
+        try:
+            # Запрос через антибан систему
+            data = antiban_system.get_vinted_items(params)
             
-            for item in data["items"]:
-                if not bot_running:
-                    break
-                    
-                # Проверка исключений
-                if should_exclude_item(item, exclude_catalog_ids, topic_name):
-                    continue
-                    
-                item_id = str(item["id"])
+            if data and "items" in data:
+                logging.info(f"Found {len(data['items'])} items for {topic_name}")
                 
-                if item_id not in list_analyzed_items:
-                    item_title = item["title"]
-                    item_url = item["url"]
-                    item_price = f'{item["price"]["amount"]} {item["price"]["currency_code"]}'
-                    item_image = item["photo"]["full_size_url"]
-                    item_size = item.get("size_title")
+                for item in data["items"]:
+                    if not bot_running:
+                        break
+                        
+                    # Проверка исключений
+                    if should_exclude_item(item, exclude_catalog_ids, topic_name):
+                        continue
+                        
+                    item_id = str(item["id"])
+                    
+                    if item_id not in list_analyzed_items:
+                        item_title = item["title"]
+                        item_url = item["url"]
+                        item_price = f'{item["price"]["amount"]} {item["price"]["currency_code"]}'
+                        item_image = item["photo"]["full_size_url"]
+                        item_size = item.get("size_title")
 
-                    priority_log = "🔥 PRIORITY " if is_priority else ""
-                    logging.info(f"🆕 {priority_log}NEW: {item_title} - {item_price}")
+                        priority_log = "🔥 PRIORITY " if is_priority else ""
+                        logging.info(f"🆕 {priority_log}NEW: {item_title} - {item_price}")
 
-                    # Send notifications
-                    if Config.smtp_username and Config.smtp_server:
-                        send_email(item_title, item_price, item_url, item_image, item_size)
+                        # Send notifications
+                        if Config.smtp_username and Config.smtp_server:
+                            send_email(item_title, item_price, item_url, item_image, item_size)
 
-                    if Config.slack_webhook_url:
-                        send_slack_message(item_title, item_price, item_url, item_image, item_size)
+                        if Config.slack_webhook_url:
+                            send_slack_message(item_title, item_price, item_url, item_image, item_size)
 
-                    if Config.telegram_bot_token and Config.telegram_chat_id:
-                        success = send_telegram_message(item_title, item_price, item_url, item_image, item_size, thread_id)
+                        if Config.telegram_bot_token and Config.telegram_chat_id:
+                            success = send_telegram_message(item_title, item_price, item_url, item_image, item_size, thread_id)
 
-                    # Save item
-                    list_analyzed_items.append(item_id)
-                    save_analyzed_item(item_id)
-        else:
-            logging.warning(f"No items: {topic_name}")
+                        # Save item
+                        list_analyzed_items.append(item_id)
+                        save_analyzed_item(item_id)
+            else:
+                logging.warning(f"No items: {topic_name}")
+                
+        except Exception as e:
+            logging.error(f"❌ {topic_name}: ошибка антибан системы - {str(e)[:50]}")
+            add_error(f"Антибан ошибка: {str(e)[:30]}", "vinted")
     else:
-        # Отслеживаем ошибки
-        vinted_antiblock.error_count += 1
+        # Fallback к старой системе
+        topic_headers = vinted_antiblock.get_headers()
         
-        if response.status_code == 521:
-            logging.error(f"❌ Vinted сервер недоступен (521) для топика: {topic_name}")
-            add_error(f"HTTP 521 - сервер недоступен", "vinted")
+        # Request with anti-blocking
+        response = requests.get(
+            f"{Config.vinted_url}/api/v2/catalog/items", 
+            params=params, 
+            cookies=cookies, 
+            headers=topic_headers,
+            timeout=timeoutconnection
+        )
+
+        # Handle errors
+        if vinted_antiblock.handle_errors(response):
+            return
+        
+        if response.status_code == 200:
+            # Сбрасываем счетчик ошибок 521 при успешном запросе
+            global vinted_521_count
+            if vinted_521_count > 0:
+                logging.info(f"✅ Vinted снова доступен! Сбрасываем счетчик ошибок 521")
+                vinted_521_count = 0
+            
+            # Отслеживаем успешные запросы
+            vinted_antiblock.success_count += 1
+            
+            data = response.json()
+
+            if data and "items" in data:
+                logging.info(f"Found {len(data['items'])} items for {topic_name}")
+                
+                for item in data["items"]:
+                    if not bot_running:
+                        break
+                        
+                    # Проверка исключений
+                    if should_exclude_item(item, exclude_catalog_ids, topic_name):
+                        continue
+                        
+                    item_id = str(item["id"])
+                    
+                    if item_id not in list_analyzed_items:
+                        item_title = item["title"]
+                        item_url = item["url"]
+                        item_price = f'{item["price"]["amount"]} {item["price"]["currency_code"]}'
+                        item_image = item["photo"]["full_size_url"]
+                        item_size = item.get("size_title")
+
+                        priority_log = "🔥 PRIORITY " if is_priority else ""
+                        logging.info(f"🆕 {priority_log}NEW: {item_title} - {item_price}")
+
+                        # Send notifications
+                        if Config.smtp_username and Config.smtp_server:
+                            send_email(item_title, item_price, item_url, item_image, item_size)
+
+                        if Config.slack_webhook_url:
+                            send_slack_message(item_title, item_price, item_url, item_image, item_size)
+
+                        if Config.telegram_bot_token and Config.telegram_chat_id:
+                            success = send_telegram_message(item_title, item_price, item_url, item_image, item_size, thread_id)
+
+                        # Save item
+                        list_analyzed_items.append(item_id)
+                        save_analyzed_item(item_id)
+            else:
+                logging.warning(f"No items: {topic_name}")
         else:
-            logging.error(f"Ошибка {response.status_code}: {topic_name}")
-            add_error(f"HTTP {response.status_code}", "vinted")
+            # Отслеживаем ошибки
+            vinted_antiblock.error_count += 1
+            
+            if response.status_code == 521:
+                logging.error(f"❌ Vinted сервер недоступен (521) для топика: {topic_name}")
+                add_error(f"HTTP 521 - сервер недоступен", "vinted")
+            else:
+                logging.error(f"Ошибка {response.status_code}: {topic_name}")
+                add_error(f"HTTP {response.status_code}", "vinted")
 
 # Telegram bot commands
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):

@@ -126,7 +126,10 @@ class AdvancedAntiBan:
             
             self.page = await self.browser.new_page()
             await self.page.set_extra_http_headers(self.sessions[self.current_session_index].headers)
-            await self.page.set_user_agent(self.sessions[self.current_session_index].user_agent)
+            # Устанавливаем User-Agent через контекст
+            await self.page.context.set_extra_http_headers({
+                'User-Agent': self.sessions[self.current_session_index].user_agent
+            })
     
     async def _rotate_session(self):
         """Ротация сессии"""
@@ -198,7 +201,7 @@ class AdvancedAntiBan:
                             const scripts = document.querySelectorAll('script');
                             for (const script of scripts) {
                                 if (script.textContent.includes('window.__INITIAL_STATE__')) {
-                                    const match = script.textContent.match(/window\.__INITIAL_STATE__\s*=\s*({.*?});/);
+                                    const match = script.textContent.match(/window\\.__INITIAL_STATE__\\s*=\\s*({.*?});/);
                                     if (match) {
                                         return JSON.parse(match[1]);
                                     }
