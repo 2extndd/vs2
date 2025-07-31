@@ -31,7 +31,7 @@ topics = {
             'order': 'newest_first',
             'price_to': '45',
         },
-        "exclude_catalog_ids": "26,98,146,139"
+        "exclude_catalog_ids": "26,98,146,139,152,1918"
     },
 
     "bags 2": {
@@ -45,7 +45,7 @@ topics = {
             'order': 'newest_first',
             'price_to': '45',
         },
-        "exclude_catalog_ids": "26,98,146,139"
+        "exclude_catalog_ids": "26,98,146,139,152,1918"
     },
 
     "Alexander Wang Leather Bags": {

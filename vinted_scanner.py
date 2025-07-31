@@ -268,12 +268,14 @@ def send_telegram_message(item_title, item_price, item_url, item_image, item_siz
         return False
 
 def should_exclude_item(item, exclude_catalog_ids):
-    """ИСПРАВЛЕННАЯ функция фильтрации"""
+    """ИСПРАВЛЕННАЯ функция фильтрации с детальным логированием"""
     if not exclude_catalog_ids:
+        logging.debug(f"🔍 No exclude_catalog_ids specified")
         return False
     
     item_catalog_id = item.get('catalog_id')
     if not item_catalog_id:
+        logging.debug(f"🔍 Item has no catalog_id: {item.get('title', 'Unknown')}")
         return False
     
     item_catalog_str = str(item_catalog_id)
@@ -282,7 +284,9 @@ def should_exclude_item(item, exclude_catalog_ids):
     is_excluded = item_catalog_str in exclude_list
     
     if is_excluded:
-        logging.info(f"🚫 EXCLUDED: catalog_id={item_catalog_str}")
+        logging.info(f"🚫 EXCLUDED: catalog_id={item_catalog_str} | title={item.get('title', 'Unknown')}")
+    else:
+        logging.debug(f"✅ PASSED: catalog_id={item_catalog_str} | title={item.get('title', 'Unknown')} | exclude_list={exclude_list}")
     
     return is_excluded
 
@@ -359,67 +363,94 @@ def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
     exclude_catalog_ids = topic_data.get("exclude_catalog_ids", "")
     thread_id = topic_data.get("thread_id")
     
-    # Get new headers for each topic
-    topic_headers = vinted_antiblock.get_headers()
+    # ДВУХУРОВНЕВАЯ СИСТЕМА
+    data = None
+    used_system = "basic"
     
-    # Request with anti-blocking
-    response = requests.get(
-        f"{Config.vinted_url}/api/v2/catalog/items", 
-        params=params, 
-        cookies=cookies, 
-        headers=topic_headers,
-        timeout=timeoutconnection
-    )
-
-    # Handle errors
-    if vinted_antiblock.handle_errors(response):
-        return
-    
-    if response.status_code == 200:
-        data = response.json()
-
-        if data and "items" in data:
-            logging.info(f"Found {len(data['items'])} items")
+    # Попытка через продвинутую систему
+    if ADVANCED_SYSTEM_AVAILABLE and system_mode in ["auto", "advanced"]:
+        try:
+            logging.info(f"🚀 [{topic_name}] Запрос через ПРОДВИНУТУЮ систему")
             
-            for item in data["items"]:
-                if not bot_running:
-                    break
-                    
-                # ИСПРАВЛЕННАЯ проверка исключений
-                if should_exclude_item(item, exclude_catalog_ids):
-                    continue
-                    
-                item_id = str(item["id"])
+            # HTTP запрос через продвинутую систему
+            url = f"{Config.vinted_url}/api/v2/catalog/items"
+            data = advanced_system.make_http_request(url, params)
+            
+            if data:
+                logging.info(f"✅ ПРОДВИНУТАЯ СИСТЕМА: Found {len(data.get('items', []))} items for {topic_name}")
+                used_system = "advanced"
+            else:
+                logging.warning(f"⚠️ Продвинутая система не вернула данные для {topic_name}")
                 
-                if item_id not in list_analyzed_items:
-                    item_title = item["title"]
-                    item_url = item["url"]
-                    item_price = f'{item["price"]["amount"]} {item["price"]["currency_code"]}'
-                    item_image = item["photo"]["full_size_url"]
-                    item_size = item.get("size_title")
+        except Exception as e:
+            logging.error(f"❌ Ошибка продвинутой системы: {e}")
+    
+    # Fallback на базовую систему
+    if not data:
+        logging.info(f"🛡️ [{topic_name}] Запрос через БАЗОВУЮ систему")
+        
+        # Get new headers for each topic
+        topic_headers = vinted_antiblock.get_headers()
+        
+        # Request with anti-blocking
+        response = requests.get(
+            f"{Config.vinted_url}/api/v2/catalog/items", 
+            params=params, 
+            cookies=cookies, 
+            headers=topic_headers,
+            timeout=timeoutconnection
+        )
 
-                    priority_log = "🔥 PRIORITY " if is_priority else ""
-                    logging.info(f"🆕 {priority_log}NEW: {item_title} - {item_price}")
-
-                    # Send notifications
-                    if Config.smtp_username and Config.smtp_server:
-                        send_email(item_title, item_price, item_url, item_image, item_size)
-
-                    if Config.slack_webhook_url:
-                        send_slack_message(item_title, item_price, item_url, item_image, item_size)
-
-                    if Config.telegram_bot_token and Config.telegram_chat_id:
-                        # АНТИБАН TELEGRAM ВКЛЮЧЕН В ФУНКЦИИ
-                        success = send_telegram_message(item_title, item_price, item_url, item_image, item_size, thread_id)
-
-                    # Save item
-                    list_analyzed_items.append(item_id)
-                    save_analyzed_item(item_id)
+        # Handle errors
+        if vinted_antiblock.handle_errors(response):
+            return
+            
+        if response.status_code == 200:
+            data = response.json()
         else:
-            logging.warning(f"No items: {topic_name}")
+            logging.error(f"Error {response.status_code}: {topic_name}")
+            add_error(f"HTTP {response.status_code}", "vinted")
+            return
+    
+    if data and "items" in data:
+        logging.info(f"Система [{used_system}]: Found {len(data['items'])} items")
+        
+        for item in data["items"]:
+            if not bot_running:
+                break
+                
+            # ИСПРАВЛЕННАЯ проверка исключений
+            if should_exclude_item(item, exclude_catalog_ids):
+                continue
+                
+            item_id = str(item["id"])
+            
+            if item_id not in list_analyzed_items:
+                item_title = item["title"]
+                item_url = item["url"]
+                item_price = f'{item["price"]["amount"]} {item["price"]["currency_code"]}'
+                item_image = item["photo"]["full_size_url"]
+                item_size = item.get("size_title")
+
+                priority_log = "🔥 PRIORITY " if is_priority else ""
+                logging.info(f"🆕 {priority_log}NEW: {item_title} - {item_price}")
+
+                # Send notifications
+                if Config.smtp_username and Config.smtp_server:
+                    send_email(item_title, item_price, item_url, item_image, item_size)
+
+                if Config.slack_webhook_url:
+                    send_slack_message(item_title, item_price, item_url, item_image, item_size)
+
+                if Config.telegram_bot_token and Config.telegram_chat_id:
+                    # АНТИБАН TELEGRAM ВКЛЮЧЕН В ФУНКЦИИ
+                    success = send_telegram_message(item_title, item_price, item_url, item_image, item_size, thread_id)
+
+                # Save item
+                list_analyzed_items.append(item_id)
+                save_analyzed_item(item_id)
     else:
-        logging.error(f"Error {response.status_code}: {topic_name}")
-        add_error(f"HTTP {response.status_code}", "vinted")
+        logging.warning(f"No items: {topic_name}")
 
 # Telegram bot commands
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -483,7 +514,7 @@ async def log_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("📝 Лог файл пуст")
             return
             
-        last_lines = lines[-8:] if len(lines) >= 8 else lines
+        last_lines = lines[-20:] if len(lines) >= 20 else lines
         log_text = "".join(last_lines)
         
         if len(log_text) > 3500:
