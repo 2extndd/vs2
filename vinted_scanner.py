@@ -344,8 +344,8 @@ def scanner_loop():
                     delay = random.uniform(5, 7)  # СУПЕРБЫСТРО для priority
                     logging.info(f"🐰 FAST: wait {delay:.0f}s")
                 else:
-                    # Slow mode: Priority topics every 15-20s, normal every 30-45s  
-                    delay = random.uniform(15, 20)  # Быстрее для priority
+                    # Slow mode: Priority topics every 25-35s, normal every 45-60s  
+                    delay = random.uniform(25, 35)  # Более медленно для стабильности
                     logging.info(f"🐌 SLOW: wait {delay:.0f}s")
                 
                 # УЛУЧШЕННАЯ СИСТЕМА ЗАДЕРЖЕК ПРИ ОШИБКАХ
@@ -604,14 +604,30 @@ async def restart_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ Restarted!")
 
 async def fast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /fast - быстрый режим сканирования"""
     global scan_mode
     scan_mode = "fast"
+    logging.info("🐰 Переключение в FAST режим")
     await update.message.reply_text("🐰 FAST mode: 5-7s priority, 10-15s normal")
 
 async def slow_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /slow - медленный режим сканирования"""
     global scan_mode
     scan_mode = "slow"
-    await update.message.reply_text("🐌 SLOW mode: 15-20s priority, 30-45s normal")
+    logging.info("🐌 Переключение в SLOW режим")
+    await update.message.reply_text("🐌 SLOW mode: 25-35s priority, 45-60s normal")
+
+async def mode_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /mode - показать текущий режим сканирования"""
+    global scan_mode
+    if scan_mode == "fast":
+        message = "🐰 Текущий режим: FAST\n"
+        message += "⏱️ Интервалы: 5-7s priority, 10-15s normal"
+    else:
+        message = "🐌 Текущий режим: SLOW\n"
+        message += "⏱️ Интервалы: 25-35s priority, 45-60s normal"
+    
+    await update.message.reply_text(message)
 
 async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Сброс системы и статистики"""
@@ -763,6 +779,7 @@ async def setup_bot():
     application.add_handler(CommandHandler("system", system_command))
     application.add_handler(CommandHandler("redeploy", redeploy_command))
     application.add_handler(CommandHandler("reset", reset_command))
+    application.add_handler(CommandHandler("mode", mode_command))
     
     return application
 
