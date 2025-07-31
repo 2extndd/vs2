@@ -371,15 +371,20 @@ def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
     if ADVANCED_SYSTEM_AVAILABLE and system_mode in ["auto", "advanced"]:
         try:
             logging.info(f"🚀 [{topic_name}] Запрос через ПРОДВИНУТУЮ систему")
+            logging.info(f"🔧 Cookies: {cookies}")
+            logging.info(f"🔧 Params: {params}")
             
             # HTTP запрос через продвинутую систему
             url = f"{Config.vinted_url}/api/v2/catalog/items"
+            logging.info(f"🌐 URL: {url}")
+            
             data = advanced_system.make_http_request(url, params, cookies)
             
             if data:
                 logging.info(f"✅ ПРОДВИНУТАЯ СИСТЕМА: Found {len(data.get('items', []))} items for {topic_name}")
                 used_system = "advanced"
             else:
+                logging.warning(f"⚠️ Продвинутая система не вернула данные для {topic_name}")
                 logging.warning(f"⚠️ HTTP заблокирован, пробуем браузер...")
                 # Попытка браузерного запроса
                 try:

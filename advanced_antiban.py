@@ -171,6 +171,7 @@ class AdvancedAntiBan:
     
     def make_http_request(self, url: str, params: dict, cookies: dict = None) -> Optional[dict]:
         """HTTP запрос с антибаном"""
+        logging.info(f"🚀 Продвинутая система (ID: {id(self)}): Начинаем HTTP запрос")
         self.http_requests += 1
         self.session_requests += 1
         
@@ -237,6 +238,7 @@ class AdvancedAntiBan:
                 # Сохранение куки
                 self.session_cookies.update(response.cookies)
                 
+                logging.info(f"✅ Продвинутая система (ID: {id(self)}): HTTP успех! Счетчики: {self.http_requests}/{self.http_success}")
                 return response.json()
                 
             elif response.status_code == 403:
@@ -253,6 +255,11 @@ class AdvancedAntiBan:
                 self.errors_521 += 1
                 self.consecutive_errors += 1
                 logging.warning(f"🔧 HTTP 521 Server Down")
+                
+            else:
+                # Обработка других ошибок (401, 500, etc.)
+                self.consecutive_errors += 1
+                logging.warning(f"⚠️ HTTP {response.status_code}: {response.text[:100]}")
                 
             # При множественных ошибках - ротация прокси
             if self.consecutive_errors >= 3:
@@ -351,7 +358,7 @@ class AdvancedAntiBan:
         total_requests = self.http_requests + self.browser_requests
         total_success = self.http_success + self.browser_success
         
-        return {
+        stats = {
             'http_requests': self.http_requests,
             'http_success': self.http_success,
             'browser_requests': self.browser_requests,
@@ -367,6 +374,10 @@ class AdvancedAntiBan:
             'proxies_count': 0,  # Без прокси
             'current_proxy': None  # Без прокси
         }
+        
+        logging.info(f"📊 Статистика продвинутой системы (ID: {id(self)}): HTTP={self.http_requests}/{self.http_success}, Browser={self.browser_requests}/{self.browser_success}")
+        return stats
 
 # Глобальный экземпляр
 advanced_system = AdvancedAntiBan()
+logging.info(f"🚀 Продвинутая система инициализирована: {id(advanced_system)}")
