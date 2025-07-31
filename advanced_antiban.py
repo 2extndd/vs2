@@ -204,21 +204,33 @@ class AdvancedAntiBan:
         return headers
     
     def human_delay(self):
-        """Имитация человеческих задержек (0.5-3с)"""
-        delay = random.uniform(0.5, 3.0)
+        """Человекоподобные задержки"""
+        # Увеличиваем задержки при ошибках
+        if self.consecutive_errors > 0:
+            base_delay = 2.0 + (self.consecutive_errors * 1.5)
+            delay = random.uniform(base_delay, base_delay + 3.0)
+        else:
+            delay = random.uniform(1.0, 3.0)
+        
+        logging.info(f"⏱️ Задержка: {delay:.1f}s")
         time.sleep(delay)
-    
+
     def exponential_backoff(self):
-        """Экспоненциальный backoff при ошибках"""
-        delay = min(self.current_delay * self.backoff_factor, self.max_delay)
-        self.current_delay = delay
-        logging.warning(f"⏳ Backoff delay: {delay:.1f}s")
-        time.sleep(delay)
-    
+        """Экспоненциальная задержка при ошибках"""
+        if self.consecutive_errors > 0:
+            self.current_delay = min(self.current_delay * self.backoff_factor, self.max_delay)
+            delay = random.uniform(self.current_delay * 0.8, self.current_delay * 1.2)
+            logging.warning(f"🚫 Экспоненциальная задержка: {delay:.1f}s (ошибок: {self.consecutive_errors})")
+            time.sleep(delay)
+        else:
+            self.human_delay()
+
     def reset_backoff(self):
-        """Сброс backoff при успешном запросе"""
-        self.current_delay = 1.0
+        """Сброс задержек при успехе"""
+        if self.consecutive_errors > 0:
+            logging.info(f"✅ Сброс задержек (было ошибок: {self.consecutive_errors})")
         self.consecutive_errors = 0
+        self.current_delay = 1.0
     
 
     def make_http_request(self, url: str, params: dict, cookies: dict = None) -> Optional[dict]:
@@ -232,18 +244,24 @@ class AdvancedAntiBan:
             self.current_proxy is None):
             self._rotate_proxy()
         
-        # Используем переданные cookies или получаем новые
-        if cookies is None:
+        # УЛУЧШЕННАЯ СИСТЕМА ПОЛУЧЕНИЯ COOKIES
+        if cookies is None or not cookies:
             try:
                 import Config
                 main_url = Config.vinted_url
                 headers = self.get_random_headers()
                 
-                # Получаем cookies через POST запрос
-                self.session.post(main_url, headers=headers, timeout=30)
-                cookies = self.session.cookies.get_dict()
-                logging.info(f"🍪 Получены новые cookies: {cookies}")
+                # Сначала получаем основную страницу для cookies
+                logging.info(f"🍪 Получаем новые cookies с {main_url}")
+                main_response = self.session.get(main_url, headers=headers, timeout=30)
                 
+                if main_response.status_code == 200:
+                    cookies = self.session.cookies.get_dict()
+                    logging.info(f"✅ Получены cookies: {cookies}")
+                else:
+                    logging.warning(f"⚠️ Ошибка получения cookies: HTTP {main_response.status_code}")
+                    cookies = {}
+                    
             except Exception as e:
                 logging.warning(f"⚠️ Ошибка получения cookies: {e}")
                 cookies = {}
@@ -290,6 +308,44 @@ class AdvancedAntiBan:
             
             logging.info(f"📝 Ответ: {response.text[:200]}")
             logging.info(f"📊 HTTP статус: {response.status_code}")
+            
+            # ОБРАБОТКА ОШИБКИ 401 - ПЕРЕАУТЕНТИФИКАЦИЯ
+            if response.status_code == 401:
+                logging.warning(f"🚫 HTTP 401 - Недействительный токен аутентификации")
+                self.consecutive_errors += 1
+                if self.current_proxy:
+                    self.current_proxy['errors'] += 1
+                
+                # Попытка переаутентификации
+                try:
+                    logging.info(f"🔄 Попытка переаутентификации...")
+                    import Config
+                    main_url = Config.vinted_url
+                    
+                    # Очищаем старые cookies
+                    self.session.cookies.clear()
+                    
+                    # Получаем новые cookies
+                    main_response = self.session.get(main_url, headers=headers, timeout=30)
+                    if main_response.status_code == 200:
+                        new_cookies = self.session.cookies.get_dict()
+                        logging.info(f"✅ Новые cookies получены: {new_cookies}")
+                        
+                        # Повторяем запрос с новыми cookies
+                        response = self.session.get(
+                            url,
+                            params=params,
+                            headers=headers,
+                            proxies=proxy_dict,
+                            timeout=30,
+                            cookies=new_cookies
+                        )
+                        logging.info(f"🔄 Повторный запрос: HTTP {response.status_code}")
+                    else:
+                        logging.error(f"❌ Не удалось получить новые cookies: HTTP {main_response.status_code}")
+                        
+                except Exception as e:
+                    logging.error(f"❌ Ошибка переаутентификации: {e}")
             
             if response.status_code != 200:
                 logging.warning(f"⚠️ HTTP ошибка: {response.status_code} - {response.text[:100]}")

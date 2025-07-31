@@ -347,6 +347,14 @@ def scanner_loop():
                     # Slow mode: Priority topics every 15-20s, normal every 30-45s  
                     delay = random.uniform(15, 20)  # Быстрее для priority
                     logging.info(f"🐌 SLOW: wait {delay:.0f}s")
+                
+                # УЛУЧШЕННАЯ СИСТЕМА ЗАДЕРЖЕК ПРИ ОШИБКАХ
+                if len(last_errors) > 0:
+                    # Если есть ошибки, увеличиваем задержку
+                    error_delay = min(len(last_errors) * 5, 30)  # Максимум 30 секунд
+                    delay += error_delay
+                    logging.warning(f"⚠️ Увеличена задержка из-за ошибок: +{error_delay}s")
+                
                 time.sleep(delay)
                 
         except Exception as e:
@@ -357,7 +365,7 @@ def scanner_loop():
 
 def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
     """Сканирование одного топика"""
-    priority_mark = "��" if is_priority else ""
+    priority_mark = "🔥" if is_priority else ""
     logging.info(f"Scanning{priority_mark}: {topic_name}")
     
     params = topic_data["query"]
@@ -398,25 +406,63 @@ def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
         # Get new headers for each topic
         topic_headers = vinted_antiblock.get_headers()
         
-        # Request with anti-blocking
-        response = requests.get(
-            f"{Config.vinted_url}/api/v2/catalog/items", 
-            params=params, 
-            cookies=cookies, 
-            headers=topic_headers,
-            timeout=timeoutconnection
-        )
+        # УЛУЧШЕННАЯ ОБРАБОТКА ОШИБОК
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                # Request with anti-blocking
+                response = requests.get(
+                    f"{Config.vinted_url}/api/v2/catalog/items", 
+                    params=params, 
+                    cookies=cookies, 
+                    headers=topic_headers,
+                    timeout=timeoutconnection
+                )
 
-        # Handle errors
-        if vinted_antiblock.handle_errors(response):
-            return
-            
-        if response.status_code == 200:
-            data = response.json()
-        else:
-            logging.error(f"Error {response.status_code}: {topic_name}")
-            add_error(f"HTTP {response.status_code}", "vinted")
-            return
+                # Handle errors
+                if vinted_antiblock.handle_errors(response):
+                    if attempt < max_retries - 1:
+                        logging.info(f"🔄 Повторная попытка {attempt + 1}/{max_retries}")
+                        time.sleep(random.uniform(2, 5))
+                        continue
+                    else:
+                        logging.error(f"❌ Все попытки исчерпаны для {topic_name}")
+                        return
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    break
+                elif response.status_code == 401:
+                    logging.warning(f"🚫 HTTP 401 - Попытка переаутентификации")
+                    # Попытка получить новые cookies
+                    try:
+                        session.post(Config.vinted_url, headers=topic_headers, timeout=timeoutconnection)
+                        cookies = session.cookies.get_dict()
+                        logging.info(f"🔄 Новые cookies получены: {cookies}")
+                    except Exception as e:
+                        logging.error(f"❌ Ошибка получения новых cookies: {e}")
+                    
+                    if attempt < max_retries - 1:
+                        time.sleep(random.uniform(3, 8))
+                        continue
+                else:
+                    logging.error(f"Error {response.status_code}: {topic_name}")
+                    add_error(f"HTTP {response.status_code}", "vinted")
+                    
+                    if attempt < max_retries - 1:
+                        time.sleep(random.uniform(2, 5))
+                        continue
+                    else:
+                        return
+                        
+            except Exception as e:
+                logging.error(f"❌ Ошибка запроса: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(random.uniform(2, 5))
+                    continue
+                else:
+                    add_error(f"Request error: {str(e)[:30]}", "vinted")
+                    return
     
     if data and "items" in data:
         logging.info(f"Система [{used_system}]: Found {len(data['items'])} items")
@@ -567,6 +613,49 @@ async def slow_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     scan_mode = "slow"
     await update.message.reply_text("🐌 SLOW mode: 15-20s priority, 30-45s normal")
 
+async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Сброс системы и статистики"""
+    try:
+        global advanced_system_errors, basic_system_errors
+        
+        # Сброс счетчиков ошибок
+        advanced_system_errors = 0
+        basic_system_errors = 0
+        
+        # Сброс продвинутой системы
+        if ADVANCED_SYSTEM_AVAILABLE:
+            try:
+                advanced_system.refresh_session()
+                advanced_system.consecutive_errors = 0
+                advanced_system.current_delay = 1.0
+                logging.info("🔄 Продвинутая система сброшена")
+            except Exception as e:
+                logging.error(f"❌ Ошибка сброса продвинутой системы: {e}")
+        
+        # Очистка ошибок
+        global last_errors, telegram_errors, vinted_errors
+        last_errors.clear()
+        telegram_errors.clear()
+        vinted_errors.clear()
+        
+        message = "🔄 Система сброшена:\n"
+        message += "✅ Счетчики ошибок очищены\n"
+        message += "✅ Продвинутая система перезапущена\n"
+        message += "✅ История ошибок очищена\n"
+        message += "🔄 Готов к работе!"
+        
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=message
+        )
+        
+    except Exception as e:
+        logging.error(f"❌ Ошибка команды reset: {e}")
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=f"❌ Ошибка сброса: {str(e)[:50]}"
+        )
+
 def signal_handler(signum, frame):
     global bot_running
     logging.info("Shutdown signal received")
@@ -673,6 +762,7 @@ async def setup_bot():
     application.add_handler(CommandHandler("proxy", proxy_command))
     application.add_handler(CommandHandler("system", system_command))
     application.add_handler(CommandHandler("redeploy", redeploy_command))
+    application.add_handler(CommandHandler("reset", reset_command))
     
     return application
 
