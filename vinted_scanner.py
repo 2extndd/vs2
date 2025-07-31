@@ -369,7 +369,7 @@ def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
     used_system = "basic"
     
     # Попытка через продвинутую систему
-    if ADVANCED_SYSTEM_AVAILABLE and system_mode in ["auto", "advanced"]:
+    if ADVANCED_SYSTEM_AVAILABLE and system_mode in ["auto", "advanced", "proxy", "noproxy"]:
         try:
             logging.info(f"🚀 [{topic_name}] Запрос через ПРОДВИНУТУЮ систему")
             logging.info(f"🔧 Cookies: {cookies}")
@@ -482,6 +482,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         anti_info += f"\n🚀 Продвинутая система:"
         anti_info += f"\n   📊 HTTP: {stats['http_success']}/{stats['http_requests']}"
         anti_info += f"\n   📈 Успешность: {stats['success_rate']:.1f}%"
+        anti_info += f"\n   📡 Прокси: {stats['proxies_count']} активных"
         anti_info += f"\n   ⚠️ Ошибок подряд: {advanced_system_errors}/{max_system_errors}"
         anti_info += f"\n   🔄 Режим: {system_mode}"
     else:
@@ -579,13 +580,19 @@ async def proxy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message = "🚀 СТАТУС ПРОДВИНУТОЙ СИСТЕМЫ:\n\n"
         message += f"📊 HTTP запросы: {stats['http_success']}/{stats['http_requests']}\n"
         message += f"📈 Общая успешность: {stats['success_rate']:.1f}%\n"
-        message += f"📡 Прокси: ❌ Отключены\n"
-        message += f"🔄 Режим: Без прокси\n"
+        message += f"📡 Прокси: ✅ {stats['proxies_count']} активных\n"
+        message += f"🔄 Текущий прокси: {stats['current_proxy']}\n"
         message += f"⚠️ Ошибки 403: {stats['errors_403']}\n"
         message += f"⚠️ Ошибки 429: {stats['errors_429']}\n" 
         message += f"⚠️ Ошибки 521: {stats['errors_521']}\n"
         message += f"🔄 Ошибок подряд: {stats['consecutive_errors']}\n"
-        message += f"🎯 Режим системы: {system_mode}"
+        message += f"🎯 Режим системы: {system_mode}\n\n"
+        
+        # Статистика прокси
+        if stats.get('proxy_stats'):
+            message += "📊 СТАТИСТИКА ПРОКСИ:\n"
+            for proxy, proxy_stat in stats['proxy_stats'].items():
+                message += f"• {proxy}: {proxy_stat['success']}/{proxy_stat['requests']} ({proxy_stat['success_rate']:.1f}%)\n"
     else:
         message = "🚀 СТАТУС ПРОДВИНУТОЙ СИСТЕМЫ:\n\n❌ Система недоступна\n🔄 Используется базовая система"
     
@@ -597,18 +604,32 @@ async def system_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if context.args:
         new_mode = context.args[0].lower()
-        if new_mode in ["auto", "basic", "advanced"]:
+        if new_mode in ["auto", "basic", "advanced", "proxy", "noproxy"]:
             system_mode = new_mode
-            message = f"🔄 Режим системы изменен на: {system_mode}"
+            
+            # Управление прокси в продвинутой системе
+            if ADVANCED_SYSTEM_AVAILABLE:
+                if new_mode == "proxy":
+                    advanced_system.enable_proxies()
+                    message = f"🔄 Режим системы изменен на: {system_mode} (с прокси)"
+                elif new_mode == "noproxy":
+                    advanced_system.disable_proxies()
+                    message = f"🔄 Режим системы изменен на: {system_mode} (без прокси)"
+                else:
+                    message = f"🔄 Режим системы изменен на: {system_mode}"
+            else:
+                message = f"🔄 Режим системы изменен на: {system_mode}"
         else:
-            message = "❌ Доступные режимы: auto, basic, advanced"
+            message = "❌ Доступные режимы: auto, basic, advanced, proxy, noproxy"
     else:
         message = f"🎯 Текущий режим: {system_mode}\n\n"
         message += "📖 Доступные режимы:\n"
         message += "• auto - автоматическое переключение\n"
         message += "• basic - только базовая система\n" 
-        message += "• advanced - только продвинутая система\n\n"
-        message += "Использование: /system auto"
+        message += "• advanced - только продвинутая система\n"
+        message += "• proxy - продвинутая с прокси\n"
+        message += "• noproxy - продвинутая без прокси\n\n"
+        message += "Использование: /system proxy"
     
     await telegram_antiblock.safe_send_message(update.effective_chat.id, message)
 
