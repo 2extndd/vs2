@@ -126,6 +126,9 @@ class AdvancedAntiBan:
             # Запрос БЕЗ прокси с улучшенными заголовками и cookies
             headers = self.get_random_headers()
             logging.info(f"🌐 Продвинутая система: HTTP запрос к {url}")
+            logging.info(f"🔧 Заголовки: {headers}")
+            logging.info(f"🔧 Параметры: {params}")
+            logging.info(f"🍪 Cookies: {cookies}")
             
             response = self.session.get(
                 url,
@@ -134,6 +137,8 @@ class AdvancedAntiBan:
                 timeout=30,
                 cookies=cookies  # Используем свежие cookies
             )
+            
+            logging.info(f"📝 Ответ: {response.text[:200]}")
             
             logging.info(f"📊 HTTP статус: {response.status_code}")
             if response.status_code != 200:
