@@ -170,6 +170,15 @@ class TelegramAntiBlock:
 vinted_antiblock = VintedAntiBlock()
 telegram_antiblock = TelegramAntiBlock()
 
+# Импорт новой антибан системы
+try:
+    from antiban import antiban_system
+    ADVANCED_ANTIBAN = True
+    logging.info("🚀 Продвинутая антибан система загружена")
+except ImportError:
+    ADVANCED_ANTIBAN = False
+    logging.warning("⚠️ Продвинутая антибан система недоступна, используется базовая")
+
 # Reservation System
 class VintedReservation:
     def __init__(self):
@@ -660,6 +669,20 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     anti_info = f"\n🛡️ Vinted requests: {vinted_antiblock.request_count}"
     anti_info += f"\n🌐 Vinted success/errors: {vinted_antiblock.success_count}/{vinted_antiblock.error_count}"
     anti_info += f"\n🚫 Vinted blocks: {vinted_antiblock.blocked_count}"
+    
+    # Добавляем статистику продвинутой антибан системы
+    if ADVANCED_ANTIBAN:
+        try:
+            advanced_stats = antiban_system.get_stats()
+            anti_info += f"\n🚀 Advanced AntiBan:"
+            anti_info += f"\n   📊 Total requests: {advanced_stats['total_requests']}"
+            anti_info += f"\n   ❌ Total errors: {advanced_stats['total_errors']}"
+            anti_info += f"\n   🚫 Total blocks: {advanced_stats['total_blocks']}"
+            anti_info += f"\n   📈 Success rate: {advanced_stats['success_rate']:.1f}%"
+            anti_info += f"\n   🔄 Session: {advanced_stats['current_session']}/{advanced_stats['sessions_count']}"
+        except Exception as e:
+            anti_info += f"\n🚀 Advanced AntiBan: ERROR - {str(e)[:30]}"
+    
     anti_info += f"\n📱 Telegram messages: {telegram_antiblock.message_count}"
     anti_info += f"\n📱 TG success/errors: {telegram_antiblock.success_count}/{telegram_antiblock.error_count}"
     anti_info += f"\n🚫 TG rate limits: {telegram_antiblock.rate_limited}"

@@ -27,6 +27,54 @@ reservation_test_account = {
 reservation_timeout = 900  # 15 минут в секундах
 reservation_max_items = 5  # Максимальное количество резервируемых товаров
 
+# Advanced AntiBan Configuration
+advanced_antiban_enabled = True  # Включить продвинутую антибан систему
+
+# Proxy Configuration (замените на реальные прокси)
+proxy_config = {
+    "enabled": True,
+    "rotation_interval": 5,  # Ротация каждые N запросов
+    "backoff_multiplier": 2.0,
+    "max_errors_per_session": 3,
+    "max_requests_per_session": 10,
+    "proxies": [
+        {
+            "host": "proxy1.example.com",
+            "port": 8080,
+            "username": "user1",
+            "password": "pass1",
+            "country": "DE",
+            "type": "residential"
+        },
+        {
+            "host": "proxy2.example.com", 
+            "port": 8080,
+            "username": "user2",
+            "password": "pass2",
+            "country": "DE",
+            "type": "residential"
+        },
+        {
+            "host": "proxy3.example.com",
+            "port": 8080,
+            "username": "user3", 
+            "password": "pass3",
+            "country": "DE",
+            "type": "residential"
+        }
+    ]
+}
+
+# Browser Configuration
+browser_config = {
+    "headless": True,
+    "user_agent_rotation": True,
+    "cookies_persistence": True,
+    "session_timeout": 300,  # 5 минут
+    "page_load_timeout": 30,
+    "network_idle_timeout": 5
+}
+
 # Список топиков и параметров для поиска
 topics = {
     "bags": {

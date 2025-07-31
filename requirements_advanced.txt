@@ -1,0 +1,21 @@
+# Основные зависимости
+requests>=2.31.0
+python-telegram-bot>=20.0
+
+# Продвинутая антибан система
+fake-useragent>=1.4.0
+playwright>=1.40.0
+aiohttp>=3.9.0
+aiofiles>=23.2.0
+
+# Дополнительные утилиты
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+selenium>=4.15.0
+
+# Для работы с прокси
+python-socks>=2.4.0
+urllib3>=2.0.0
+
+# Для эмуляции браузера
+undetected-chromedriver>=3.5.0 
