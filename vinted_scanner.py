@@ -380,7 +380,23 @@ def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
                 logging.info(f"✅ ПРОДВИНУТАЯ СИСТЕМА: Found {len(data.get('items', []))} items for {topic_name}")
                 used_system = "advanced"
             else:
-                logging.warning(f"⚠️ Продвинутая система не вернула данные для {topic_name}")
+                logging.warning(f"⚠️ HTTP заблокирован, пробуем браузер...")
+                # Попытка браузерного запроса
+                try:
+                    import asyncio
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    browser_data = loop.run_until_complete(advanced_system.make_browser_request(url, params))
+                    loop.close()
+                    
+                    if browser_data:
+                        data = browser_data
+                        used_system = "browser"
+                        logging.info(f"✅ БРАУЗЕРНАЯ СИСТЕМА: Found {len(data.get('items', []))} items for {topic_name}")
+                    else:
+                        logging.warning(f"⚠️ Браузер тоже не вернул данные для {topic_name}")
+                except Exception as e:
+                    logging.error(f"❌ Ошибка браузерного запроса: {e}")
                 
         except Exception as e:
             logging.error(f"❌ Ошибка продвинутой системы: {e}")

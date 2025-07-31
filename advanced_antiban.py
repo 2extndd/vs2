@@ -174,6 +174,21 @@ class AdvancedAntiBan:
         self.http_requests += 1
         self.session_requests += 1
         
+        # Автоматическая инициализация браузера при первом запросе
+        if not self.browser_available and PLAYWRIGHT_AVAILABLE:
+            try:
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                success = loop.run_until_complete(self.initialize_browser())
+                loop.close()
+                if success:
+                    logging.info("✅ Браузер автоматически инициализирован")
+                else:
+                    logging.warning("⚠️ Автоматическая инициализация браузера не удалась")
+            except Exception as e:
+                logging.error(f"❌ Ошибка автоматической инициализации: {e}")
+        
         try:
             # Проверка необходимости обновления сессии
             if (self.session_requests > self.max_session_requests or 
@@ -181,13 +196,20 @@ class AdvancedAntiBan:
                 self.refresh_session()
             
             # Запрос БЕЗ прокси с улучшенными заголовками
+            headers = self.get_random_headers()
+            logging.info(f"🌐 Продвинутая система: HTTP запрос к {url}")
+            
             response = self.session.get(
                 url,
                 params=params,
-                headers=self.get_random_headers(),
+                headers=headers,
                 timeout=30,
                 cookies=self.session_cookies
             )
+            
+            logging.info(f"📊 HTTP статус: {response.status_code}")
+            if response.status_code != 200:
+                logging.warning(f"⚠️ HTTP ошибка: {response.status_code} - {response.text[:100]}")
             
             # Обработка ответа
             if response.status_code == 200:
