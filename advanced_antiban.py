@@ -64,25 +64,17 @@ class AdvancedAntiBan:
         
     def load_proxies(self):
         """Загрузка прокси из конфигурации"""
-        if hasattr(Config, 'proxy_config') and Config.proxy_config:
-            proxy_list = Config.proxy_config.get('proxies', [])
-            for proxy_dict in proxy_list:
-                if isinstance(proxy_dict, dict):
-                    proxy_str = f"http://{proxy_dict['username']}:{proxy_dict['password']}@{proxy_dict['host']}:{proxy_dict['port']}"
-                    self.proxy_pool.append(proxy_str)
-            logging.info(f"📡 Загружено {len(self.proxy_pool)} прокси для продвинутой системы")
+        # Прокси отключены - работаем без них
+        logging.info("📡 Продвинутая система работает БЕЗ прокси")
         
     def get_current_proxy(self):
         """Получение текущего прокси"""
-        if not self.proxy_pool:
-            return None
-        return self.proxy_pool[self.current_proxy_index % len(self.proxy_pool)]
-    
+        return None  # Без прокси
+        
     def rotate_proxy(self):
         """Ротация прокси"""
-        if self.proxy_pool:
-            self.current_proxy_index = (self.current_proxy_index + 1) % len(self.proxy_pool)
-            logging.info(f"🔄 Ротация прокси на {self.get_current_proxy()}")
+        # Без прокси - ничего не делаем
+        pass
     
     def get_random_headers(self):
         """Генерация случайных заголовков как у настоящего браузера"""
@@ -137,33 +129,11 @@ class AdvancedAntiBan:
                 '--user-agent=' + self.ua.random
             ]
             
-            # Запуск браузера с прокси
-            current_proxy = self.get_current_proxy()
-            if current_proxy:
-                # Парсинг прокси
-                if '@' in current_proxy:
-                    proxy_parts = current_proxy.split('@')
-                    auth_part = proxy_parts[0].split('://')[1]
-                    host_part = proxy_parts[1]
-                    username, password = auth_part.split(':')
-                    server = f"http://{host_part}"
-                    
-                    self.browser = await self.playwright.chromium.launch(
-                        headless=True,
-                        args=browser_args,
-                        proxy={'server': server, 'username': username, 'password': password}
-                    )
-                else:
-                    self.browser = await self.playwright.chromium.launch(
-                        headless=True,
-                        args=browser_args,
-                        proxy={'server': current_proxy}
-                    )
-            else:
-                self.browser = await self.playwright.chromium.launch(
-                    headless=True,
-                    args=browser_args
-                )
+            # Запуск браузера БЕЗ прокси
+            self.browser = await self.playwright.chromium.launch(
+                headless=True,
+                args=browser_args
+            )
             
             # Создание контекста с антидетекцией
             self.context = await self.browser.new_context(
@@ -210,16 +180,11 @@ class AdvancedAntiBan:
                 time.time() - self.session_created > 1800):  # 30 минут
                 self.refresh_session()
             
-            # Настройка прокси
-            current_proxy = self.get_current_proxy()
-            proxies = {'http': current_proxy, 'https': current_proxy} if current_proxy else None
-            
-            # Запрос с случайными заголовками
+            # Запрос БЕЗ прокси с улучшенными заголовками
             response = self.session.get(
                 url,
                 params=params,
                 headers=self.get_random_headers(),
-                proxies=proxies,
                 timeout=30,
                 cookies=self.session_cookies
             )
@@ -359,8 +324,8 @@ class AdvancedAntiBan:
             'errors_521': self.errors_521,
             'consecutive_errors': self.consecutive_errors,
             'browser_available': self.browser_available,
-            'proxies_count': len(self.proxy_pool),
-            'current_proxy': self.get_current_proxy()
+            'proxies_count': 0,  # Без прокси
+            'current_proxy': None  # Без прокси
         }
 
 # Глобальный экземпляр
