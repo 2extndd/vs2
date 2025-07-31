@@ -2,6 +2,7 @@
 """
 Продвинутая система антибана с резидентскими прокси и кластеризацией
 Для стабильной версии v1.1 (Railway compatible)
+УМНАЯ САМОВОССТАНАВЛИВАЮЩАЯСЯ СИСТЕМА
 """
 
 import asyncio
@@ -33,6 +34,8 @@ class AdvancedAntiBan:
         # Статистика
         self.http_requests = 0
         self.http_success = 0
+        self.browser_requests = 0
+        self.browser_success = 0
         self.errors_403 = 0
         self.errors_429 = 0
         self.errors_521 = 0
@@ -43,6 +46,30 @@ class AdvancedAntiBan:
         self.current_proxy = None
         self.proxy_rotation_count = 0
         self.max_requests_per_proxy = 5  # Ротация каждые 5 запросов
+        
+        # УМНАЯ САМОВОССТАНАВЛИВАЮЩАЯСЯ СИСТЕМА ПРОКСИ
+        self.proxy_mode = "auto"  # auto, enabled, disabled
+        self.proxy_health_check_time = time.time()
+        self.proxy_health_check_interval = 180  # 3 минуты (уменьшено для быстрой реакции)
+        self.proxy_failure_threshold = 8  # Количество ошибок для отключения прокси (уменьшено)
+        self.proxy_success_threshold = 3   # Количество успехов для включения прокси (уменьшено)
+        self.proxy_failures = 0
+        self.proxy_successes = 0
+        
+        # НОВАЯ СИСТЕМА АВТОМАТИЧЕСКОГО ВОССТАНОВЛЕНИЯ
+        self.last_proxy_test_time = time.time()
+        self.proxy_test_interval = 600  # 10 минут - тестируем прокси каждые 10 минут
+        self.proxy_recovery_attempts = 0
+        self.max_proxy_recovery_attempts = 5
+        self.proxy_blacklist = []  # Список заблокированных прокси
+        self.proxy_whitelist = []  # Список проверенных рабочих прокси
+        
+        # Система автоматического переключения режимов
+        self.mode_switch_time = time.time()
+        self.mode_switch_interval = 300  # 5 минут между переключениями
+        self.last_mode_switch = "auto"
+        self.mode_switch_count = 0
+        self.max_mode_switches = 10  # Максимум переключений в час
         
         # Кластеризация антибот-параметров
         self.client_profiles = self._generate_client_profiles()
@@ -60,13 +87,158 @@ class AdvancedAntiBan:
         # Инициализация прокси
         self._load_proxies()
         
+        # Первоначальная проверка здоровья прокси
+        self._check_proxy_health()
+        
+        # Запуск фоновой задачи для периодической проверки прокси
+        self._start_background_tasks()
+        
+    def _start_background_tasks(self):
+        """Запуск фоновых задач для самовосстановления"""
+        try:
+            # Создаем фоновую задачу для периодической проверки прокси
+            import threading
+            self.background_thread = threading.Thread(target=self._background_proxy_checker, daemon=True)
+            self.background_thread.start()
+            logging.info("🔄 Фоновая задача проверки прокси запущена")
+        except Exception as e:
+            logging.error(f"❌ Ошибка запуска фоновой задачи: {e}")
+        
+    def _background_proxy_checker(self):
+        """Фоновая задача для периодической проверки и восстановления прокси"""
+        while True:
+            try:
+                time.sleep(60)  # Проверяем каждую минуту
+                self._periodic_proxy_health_check()
+                self._attempt_proxy_recovery()
+                self._cleanup_proxy_lists()
+            except Exception as e:
+                logging.error(f"❌ Ошибка в фоновой задаче: {e}")
+                
+    def _periodic_proxy_health_check(self):
+        """Периодическая проверка здоровья прокси"""
+        current_time = time.time()
+        
+        # Проверяем каждые 3 минуты
+        if current_time - self.proxy_health_check_time > self.proxy_health_check_interval:
+            self.proxy_health_check_time = current_time
+            
+            # Анализируем статистику
+            total_errors = self.errors_403 + self.errors_429 + self.errors_521
+            success_rate = (self.http_success / self.http_requests * 100) if self.http_requests > 0 else 0
+            
+            logging.info(f"🔍 Периодическая проверка прокси:")
+            logging.info(f"📊 Успешность: {success_rate:.1f}%")
+            logging.info(f"📊 Ошибок: {total_errors}")
+            logging.info(f"📊 Режим: {self.proxy_mode}")
+            
+            # Автоматическое переключение режимов
+            if self.proxy_mode == "auto":
+                if total_errors >= self.proxy_failure_threshold and success_rate < 50:
+                    self._switch_to_no_proxy_mode()
+                elif self.proxy_successes >= self.proxy_success_threshold and success_rate > 70:
+                    self._switch_to_proxy_mode()
+                    
+    def _switch_to_no_proxy_mode(self):
+        """Переключение в режим без прокси"""
+        if self.proxy_mode != "disabled":
+            self.proxy_mode = "disabled"
+            self.current_proxy = None
+            self.proxy_failures = 0
+            self.proxy_successes = 0
+            self.mode_switch_count += 1
+            logging.warning("🚫 АВТОМАТИЧЕСКОЕ ПЕРЕКЛЮЧЕНИЕ: Режим без прокси")
+            
+    def _switch_to_proxy_mode(self):
+        """Переключение в режим с прокси"""
+        if self.proxy_mode != "enabled" and self.proxies:
+            self.proxy_mode = "enabled"
+            self._rotate_proxy()
+            self.proxy_failures = 0
+            self.proxy_successes = 0
+            self.mode_switch_count += 1
+            logging.info("✅ АВТОМАТИЧЕСКОЕ ПЕРЕКЛЮЧЕНИЕ: Режим с прокси")
+            
+    def _attempt_proxy_recovery(self):
+        """Попытка восстановления прокси"""
+        current_time = time.time()
+        
+        # Пытаемся восстановить прокси каждые 10 минут
+        if current_time - self.last_proxy_test_time > self.proxy_test_interval:
+            self.last_proxy_test_time = current_time
+            
+            if self.proxy_mode == "disabled" and self.proxy_recovery_attempts < self.max_proxy_recovery_attempts:
+                logging.info("🔄 Попытка восстановления прокси...")
+                
+                # Тестируем случайные прокси
+                test_proxies = [p for p in self.proxies if p not in self.proxy_blacklist]
+                if test_proxies:
+                    test_proxy = random.choice(test_proxies)
+                    if self._test_proxy(test_proxy):
+                        self.proxy_whitelist.append(test_proxy)
+                        self.proxy_recovery_attempts = 0
+                        logging.info("✅ Прокси восстановлен и добавлен в whitelist")
+                        
+                        # Переключаемся обратно в режим прокси
+                        if len(self.proxy_whitelist) >= 2:
+                            self._switch_to_proxy_mode()
+                    else:
+                        self.proxy_blacklist.append(test_proxy)
+                        self.proxy_recovery_attempts += 1
+                        logging.warning(f"❌ Прокси не работает, попытка {self.proxy_recovery_attempts}/{self.max_proxy_recovery_attempts}")
+                        
+    def _test_proxy(self, proxy):
+        """Тестирование прокси"""
+        try:
+            test_url = "https://httpbin.org/ip"
+            proxy_dict = {
+                'http': proxy['http'],
+                'https': proxy['https']
+            }
+            
+            response = requests.get(test_url, proxies=proxy_dict, timeout=10)
+            if response.status_code == 200:
+                return True
+        except:
+            pass
+        return False
+        
+    def _cleanup_proxy_lists(self):
+        """Очистка списков прокси"""
+        current_time = time.time()
+        
+        # Очищаем blacklist каждые 30 минут
+        if len(self.proxy_blacklist) > 0 and current_time - self.proxy_health_check_time > 1800:
+            self.proxy_blacklist.clear()
+            logging.info("🧹 Blacklist прокси очищен")
+            
+        # Ограничиваем размер whitelist
+        if len(self.proxy_whitelist) > 10:
+            self.proxy_whitelist = self.proxy_whitelist[-10:]
+            
     def _load_proxies(self):
         """Загрузка резидентских прокси"""
         proxy_list = [
-            "uxhsjsf86p:QjN9YOVXOTh404nh@175.110.113.245:23250",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@93.190.137.111:13196", 
-            "uxhsjsf86p:QjN9YOVXOTh404nh@185.100.232.163:26649",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@91.232.105.44:11829"
+            "uxhsjsf86p:QjN9YOVXOTh404nh@93.190.142.89:22423",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@212.41.8.52:11291", 
+            "uxhsjsf86p:QjN9YOVXOTh404nh@62.112.10.76:13303",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@185.165.241.5:11902",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@185.100.232.163:23018",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@185.185.51.65:13546",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@185.185.51.65:19564",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@185.100.232.132:11391",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@89.39.104.152:20487",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@175.110.113.246:20028",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@175.110.113.245:15595",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@175.110.113.236:22517",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@93.190.139.73:16653",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@185.165.240.228:17405",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@175.110.115.54:15846",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@151.106.6.79:17750",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@190.2.132.231:13961",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@93.190.139.245:19441",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@93.190.141.73:25919",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@136.243.177.154:23567"
         ]
         
         for proxy in proxy_list:
@@ -81,7 +253,9 @@ class AdvancedAntiBan:
                     'port': port,
                     'requests': 0,
                     'success': 0,
-                    'errors': 0
+                    'errors': 0,
+                    'last_used': 0,
+                    'health_score': 100  # Новый параметр здоровья прокси
                 }
                 self.proxies.append(proxy_dict)
                 logging.info(f"✅ Загружен прокси: {host}:{port}")
@@ -154,30 +328,42 @@ class AdvancedAntiBan:
         return random.choice(self.client_profiles)
         
     def _rotate_proxy(self):
-        """Ротация прокси"""
+        """Умная ротация прокси с учетом здоровья"""
         if not self.proxies:
             return None
             
-        # Выбираем прокси с наименьшим количеством ошибок
-        available_proxies = [p for p in self.proxies if p['errors'] < 3]
-        if not available_proxies:
-            available_proxies = self.proxies
+        # Сначала пробуем прокси из whitelist
+        if self.proxy_whitelist:
+            self.current_proxy = random.choice(self.proxy_whitelist)
+        else:
+            # Выбираем прокси с лучшим здоровьем
+            available_proxies = [p for p in self.proxies if p not in self.proxy_blacklist and p['health_score'] > 50]
+            if not available_proxies:
+                available_proxies = [p for p in self.proxies if p not in self.proxy_blacklist]
+            if not available_proxies:
+                available_proxies = self.proxies
+                
+            # Сортируем по здоровью
+            available_proxies.sort(key=lambda x: x['health_score'], reverse=True)
+            self.current_proxy = available_proxies[0] if available_proxies else None
             
-        # Выбираем случайный прокси
-        self.current_proxy = random.choice(available_proxies)
-        self.proxy_rotation_count = 0
-        
-        logging.info(f"🔄 Ротация прокси: {self.current_proxy['host']}:{self.current_proxy['port']}")
+        if self.current_proxy:
+            self.proxy_rotation_count = 0
+            self.current_proxy['last_used'] = time.time()
+            logging.info(f"🔄 Ротация прокси: {self.current_proxy['host']}:{self.current_proxy['port']} (здоровье: {self.current_proxy['health_score']})")
+            
         return self.current_proxy
         
     def disable_proxies(self):
         """Отключение прокси"""
         self.current_proxy = None
+        self.proxy_mode = "disabled"
         logging.info("📡 Прокси отключены")
         
     def enable_proxies(self):
         """Включение прокси"""
         if self.proxies:
+            self.proxy_mode = "enabled"
             self._rotate_proxy()
             logging.info("📡 Прокси включены")
         else:
@@ -234,13 +420,16 @@ class AdvancedAntiBan:
     
 
     def make_http_request(self, url: str, params: dict, cookies: dict = None) -> Optional[dict]:
-        """HTTP запрос с антибаном и прокси"""
+        """HTTP запрос с антибаном и умной системой прокси"""
         logging.info(f"🚀 Продвинутая система (ID: {id(self)}): Начинаем HTTP запрос")
         self.http_requests += 1
         self.session_requests += 1
         
-        # Проверка необходимости ротации прокси (только если есть прокси)
-        if self.proxies and (self.proxy_rotation_count >= self.max_requests_per_proxy or 
+        # Проверка здоровья прокси
+        self._check_proxy_health()
+        
+        # Проверка необходимости ротации прокси (только если используем прокси)
+        if self._should_use_proxy() and self.proxies and (self.proxy_rotation_count >= self.max_requests_per_proxy or 
             self.current_proxy is None):
             self._rotate_proxy()
         
@@ -279,9 +468,9 @@ class AdvancedAntiBan:
             logging.info(f"🌐 Продвинутая система: HTTP запрос к {url}")
             logging.info(f"🔧 Профиль: {self.current_profile['name']}")
             
-            # Подготовка запроса с или без прокси
-            if self.current_proxy:
-                logging.info(f"🔧 Прокси: {self.current_proxy['host']}:{self.current_proxy['port']}")
+            # УМНАЯ САМОВОССТАНАВЛИВАЮЩАЯСЯ СИСТЕМА ПРОКСИ
+            if self._should_use_proxy() and self.current_proxy:
+                logging.info(f"🔧 Прокси: {self.current_proxy['host']}:{self.current_proxy['port']} (режим: {self.proxy_mode})")
                 proxy_dict = {
                     'http': self.current_proxy['http'],
                     'https': self.current_proxy['https']
@@ -290,7 +479,7 @@ class AdvancedAntiBan:
                 self.current_proxy['requests'] += 1
                 self.proxy_rotation_count += 1
             else:
-                logging.info(f"🔧 Прокси: ❌ Отключен")
+                logging.info(f"🔧 Прокси: ❌ Отключен (режим: {self.proxy_mode})")
                 proxy_dict = None
                 self.proxy_rotation_count += 1
             
@@ -315,6 +504,7 @@ class AdvancedAntiBan:
                 self.consecutive_errors += 1
                 if self.current_proxy:
                     self.current_proxy['errors'] += 1
+                    self._update_proxy_health(self.current_proxy, False)
                 
                 # Попытка переаутентификации
                 try:
@@ -355,6 +545,8 @@ class AdvancedAntiBan:
                 self.http_success += 1
                 if self.current_proxy:
                     self.current_proxy['success'] += 1
+                    self.proxy_successes += 1
+                    self._update_proxy_health(self.current_proxy, True)
                 self.reset_backoff()
                 
                 # Сохранение куки
@@ -368,6 +560,8 @@ class AdvancedAntiBan:
                 self.consecutive_errors += 1
                 if self.current_proxy:
                     self.current_proxy['errors'] += 1
+                    self.proxy_failures += 1
+                    self._update_proxy_health(self.current_proxy, False)
                 logging.warning(f"🚫 HTTP 403 Forbidden (ошибок подряд: {self.consecutive_errors})")
                 
             elif response.status_code == 429:
@@ -375,6 +569,8 @@ class AdvancedAntiBan:
                 self.consecutive_errors += 1
                 if self.current_proxy:
                     self.current_proxy['errors'] += 1
+                    self.proxy_failures += 1
+                    self._update_proxy_health(self.current_proxy, False)
                 logging.warning(f"⏱️ HTTP 429 Too Many Requests")
                 
             elif response.status_code == 521:
@@ -382,6 +578,8 @@ class AdvancedAntiBan:
                 self.consecutive_errors += 1
                 if self.current_proxy:
                     self.current_proxy['errors'] += 1
+                    self.proxy_failures += 1
+                    self._update_proxy_health(self.current_proxy, False)
                 logging.warning(f"🔧 HTTP 521 Server Down")
                 
             else:
@@ -389,11 +587,14 @@ class AdvancedAntiBan:
                 self.consecutive_errors += 1
                 if self.current_proxy:
                     self.current_proxy['errors'] += 1
+                    self.proxy_failures += 1
+                    self._update_proxy_health(self.current_proxy, False)
                 logging.warning(f"⚠️ HTTP {response.status_code}: {response.text[:100]}")
                 
-            # При множественных ошибках - ротация прокси
-            if self.consecutive_errors >= 3 and self.proxies:
-                self._rotate_proxy()
+            # При множественных ошибках - ротация прокси или отключение
+            if self.consecutive_errors >= 3:
+                if self._should_use_proxy() and self.proxies:
+                    self._rotate_proxy()
                 self.refresh_session()
                 
             return None
@@ -403,8 +604,27 @@ class AdvancedAntiBan:
             self.consecutive_errors += 1
             if self.current_proxy:
                 self.current_proxy['errors'] += 1
+                self.proxy_failures += 1
+                self._update_proxy_health(self.current_proxy, False)
             return None
     
+    def _update_proxy_health(self, proxy, success: bool):
+        """Обновление здоровья прокси"""
+        if success:
+            # Увеличиваем здоровье при успехе
+            proxy['health_score'] = min(100, proxy['health_score'] + 10)
+            if proxy['health_score'] >= 80 and proxy not in self.proxy_whitelist:
+                self.proxy_whitelist.append(proxy)
+                logging.info(f"✅ Прокси {proxy['host']}:{proxy['port']} добавлен в whitelist")
+        else:
+            # Уменьшаем здоровье при ошибке
+            proxy['health_score'] = max(0, proxy['health_score'] - 20)
+            if proxy['health_score'] <= 20 and proxy in self.proxy_whitelist:
+                self.proxy_whitelist.remove(proxy)
+                logging.warning(f"❌ Прокси {proxy['host']}:{proxy['port']} удален из whitelist")
+            elif proxy['health_score'] <= 0:
+                self.proxy_blacklist.append(proxy)
+                logging.error(f"🚫 Прокси {proxy['host']}:{proxy['port']} добавлен в blacklist")
 
     def refresh_session(self):
         """Обновление HTTP сессии"""
@@ -424,42 +644,108 @@ class AdvancedAntiBan:
             logging.error(f"❌ Ошибка закрытия: {e}")
     
     def get_stats(self):
-        """Получение статистики с информацией о прокси"""
-        total_requests = self.http_requests
-        total_success = self.http_success
+        """Получение статистики системы"""
+        total_requests = self.http_requests + self.browser_requests
+        total_success = self.http_success + self.browser_success
+        success_rate = (total_success / total_requests * 100) if total_requests > 0 else 0.0
         
         # Статистика прокси
         proxy_stats = {}
         for proxy in self.proxies:
-            if proxy['requests'] > 0:
-                success_rate = (proxy['success'] / proxy['requests']) * 100
-                proxy_stats[f"{proxy['host']}:{proxy['port']}"] = {
-                    'requests': proxy['requests'],
-                    'success': proxy['success'],
-                    'errors': proxy['errors'],
-                    'success_rate': success_rate
-                }
+            proxy_key = f"{proxy['host']}:{proxy['port']}"
+            requests = proxy.get('requests', 0)
+            success = proxy.get('success', 0)
+            errors = proxy.get('errors', 0)
+            proxy_success_rate = (success / requests * 100) if requests > 0 else 0.0
+            
+            proxy_stats[proxy_key] = {
+                'requests': requests,
+                'success': success,
+                'errors': errors,
+                'success_rate': proxy_success_rate,
+                'health_score': proxy.get('health_score', 100)
+            }
         
         stats = {
             'http_requests': self.http_requests,
             'http_success': self.http_success,
-            'browser_requests': 0,
-            'browser_success': 0,
+            'browser_requests': self.browser_requests,
+            'browser_success': self.browser_success,
             'total_requests': total_requests,
             'total_success': total_success,
-            'success_rate': (total_success / max(total_requests, 1)) * 100,
+            'success_rate': success_rate,
             'errors_403': self.errors_403,
             'errors_429': self.errors_429,
             'errors_521': self.errors_521,
             'consecutive_errors': self.consecutive_errors,
-            'browser_available': False,
+            'browser_available': PLAYWRIGHT_AVAILABLE,
             'proxies_count': len(self.proxies),
-            'current_proxy': f"{self.current_proxy['host']}:{self.current_proxy['port']}" if self.current_proxy else None,
-            'proxy_stats': proxy_stats
+            'current_proxy': f"{self.current_proxy['host']}:{self.current_proxy['port']}" if self.current_proxy else "None",
+            'proxy_stats': proxy_stats,
+            # НОВАЯ СТАТИСТИКА ПРОКСИ
+            'proxy_mode': self.proxy_mode,
+            'proxy_failures': self.proxy_failures,
+            'proxy_successes': self.proxy_successes,
+            'proxy_health_check_time': self.proxy_health_check_time,
+            'should_use_proxy': self._should_use_proxy(),
+            # НОВАЯ СТАТИСТИКА САМОВОССТАНОВЛЕНИЯ
+            'proxy_whitelist_count': len(self.proxy_whitelist),
+            'proxy_blacklist_count': len(self.proxy_blacklist),
+            'proxy_recovery_attempts': self.proxy_recovery_attempts,
+            'mode_switch_count': self.mode_switch_count,
+            'last_mode_switch': self.last_mode_switch
         }
         
-        logging.info(f"📊 Статистика продвинутой системы (ID: {id(self)}): HTTP={self.http_requests}/{self.http_success}")
         return stats
+
+    def _check_proxy_health(self):
+        """Проверка здоровья прокси и автоматическое переключение режимов"""
+        current_time = time.time()
+        
+        # Проверяем, нужно ли обновить статус прокси
+        if current_time - self.proxy_health_check_time > self.proxy_health_check_interval:
+            self.proxy_health_check_time = current_time
+            
+            # Анализируем статистику ошибок
+            total_errors = self.errors_403 + self.errors_429 + self.errors_521
+            
+            if self.proxy_mode == "auto":
+                if total_errors >= self.proxy_failure_threshold and self.proxy_failures >= 3:
+                    # Отключаем прокси при множественных ошибках
+                    self._disable_proxy_mode()
+                    logging.warning(f"🚫 Прокси отключены из-за {total_errors} ошибок")
+                elif self.proxy_successes >= self.proxy_success_threshold and self.proxy_failures < 2:
+                    # Включаем прокси при успехах
+                    self._enable_proxy_mode()
+                    logging.info(f"✅ Прокси включены после {self.proxy_successes} успехов")
+    
+    def _enable_proxy_mode(self):
+        """Включение режима прокси"""
+        if self.proxies and not self.current_proxy:
+            self.proxy_mode = "enabled"
+            self._rotate_proxy()
+            self.proxy_failures = 0
+            self.proxy_successes = 0
+            logging.info("🔄 Режим прокси включен")
+    
+    def _disable_proxy_mode(self):
+        """Отключение режима прокси"""
+        self.proxy_mode = "disabled"
+        self.current_proxy = None
+        self.proxy_failures = 0
+        self.proxy_successes = 0
+        logging.info("🚫 Режим прокси отключен")
+    
+    def _should_use_proxy(self):
+        """Определяет, нужно ли использовать прокси"""
+        if self.proxy_mode == "disabled":
+            return False
+        elif self.proxy_mode == "enabled":
+            return True
+        else:  # auto mode
+            # Используем прокси, если нет критических ошибок
+            total_errors = self.errors_403 + self.errors_429 + self.errors_521
+            return total_errors < self.proxy_failure_threshold
 
 # Глобальный экземпляр (синглтон)
 _advanced_system_instance = None

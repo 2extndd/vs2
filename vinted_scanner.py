@@ -376,7 +376,7 @@ def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
     data = None
     used_system = "basic"
     
-    # Попытка через продвинутую систему
+    # Попытка через продвинутую систему (если доступна)
     if ADVANCED_SYSTEM_AVAILABLE and system_mode in ["auto", "advanced", "proxy", "noproxy"]:
         try:
             logging.info(f"🚀 [{topic_name}] Запрос через ПРОДВИНУТУЮ систему")
@@ -399,7 +399,7 @@ def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
         except Exception as e:
             logging.error(f"❌ Ошибка продвинутой системы: {e}")
     
-    # Fallback на базовую систему
+    # Fallback на базовую систему (если продвинутая не сработала)
     if not data:
         logging.info(f"🛡️ [{topic_name}] Запрос через БАЗОВУЮ систему")
         
@@ -693,11 +693,28 @@ async def proxy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message += f"🔄 Ошибок подряд: {stats['consecutive_errors']}\n"
         message += f"🎯 Режим системы: {system_mode}\n\n"
         
-        # Статистика прокси
+        # НОВАЯ ИНФОРМАЦИЯ О ПРОКСИ
+        message += f"🧠 УМНАЯ САМОВОССТАНАВЛИВАЮЩАЯСЯ СИСТЕМА:\n"
+        message += f"📊 Режим прокси: {stats['proxy_mode']}\n"
+        message += f"✅ Успехов прокси: {stats['proxy_successes']}\n"
+        message += f"❌ Ошибок прокси: {stats['proxy_failures']}\n"
+        message += f"🔧 Использует прокси: {'Да' if stats['should_use_proxy'] else 'Нет'}\n\n"
+        
+        # НОВАЯ СТАТИСТИКА САМОВОССТАНОВЛЕНИЯ
+        message += f"🔄 САМОВОССТАНОВЛЕНИЕ:\n"
+        message += f"📋 Whitelist прокси: {stats['proxy_whitelist_count']}\n"
+        message += f"🚫 Blacklist прокси: {stats['proxy_blacklist_count']}\n"
+        message += f"🔄 Попыток восстановления: {stats['proxy_recovery_attempts']}/5\n"
+        message += f"🔄 Переключений режимов: {stats['mode_switch_count']}\n"
+        message += f"📊 Последнее переключение: {stats['last_mode_switch']}\n\n"
+        
+        # Статистика прокси с здоровьем
         if stats.get('proxy_stats'):
-            message += "📊 СТАТИСТИКА ПРОКСИ:\n"
+            message += "📊 СТАТИСТИКА ПРОКСИ (с здоровьем):\n"
             for proxy, proxy_stat in stats['proxy_stats'].items():
-                message += f"• {proxy}: {proxy_stat['success']}/{proxy_stat['requests']} ({proxy_stat['success_rate']:.1f}%)\n"
+                if proxy_stat['requests'] > 0:  # Показываем только активные прокси
+                    health_emoji = "🟢" if proxy_stat['health_score'] >= 80 else "🟡" if proxy_stat['health_score'] >= 50 else "🔴"
+                    message += f"{health_emoji} {proxy}: {proxy_stat['success']}/{proxy_stat['requests']} ({proxy_stat['success_rate']:.1f}%) [Здоровье: {proxy_stat['health_score']}]\n"
     else:
         message = "🚀 СТАТУС ПРОДВИНУТОЙ СИСТЕМЫ:\n\n❌ Система недоступна\n🔄 Используется базовая система"
     
@@ -767,6 +784,107 @@ async def redeploy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await telegram_antiblock.safe_send_message(update.effective_chat.id, message)
 
+async def recovery_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /recovery - управление самовосстанавливающейся системой"""
+    if not ADVANCED_SYSTEM_AVAILABLE:
+        message = "❌ Продвинутая система недоступна"
+        await telegram_antiblock.safe_send_message(update.effective_chat.id, message)
+        return
+        
+    if context.args:
+        action = context.args[0].lower()
+        
+        if action == "test":
+            # Принудительное тестирование прокси
+            message = "🔍 ПРИНУДИТЕЛЬНОЕ ТЕСТИРОВАНИЕ ПРОКСИ:\n\n"
+            
+            # Тестируем все прокси
+            working_proxies = []
+            failed_proxies = []
+            
+            for proxy in advanced_system.proxies:
+                if advanced_system._test_proxy(proxy):
+                    working_proxies.append(f"{proxy['host']}:{proxy['port']}")
+                    if proxy not in advanced_system.proxy_whitelist:
+                        advanced_system.proxy_whitelist.append(proxy)
+                else:
+                    failed_proxies.append(f"{proxy['host']}:{proxy['port']}")
+                    if proxy not in advanced_system.proxy_blacklist:
+                        advanced_system.proxy_blacklist.append(proxy)
+            
+            message += f"✅ Рабочих прокси: {len(working_proxies)}\n"
+            message += f"❌ Неисправных прокси: {len(failed_proxies)}\n\n"
+            
+            if working_proxies:
+                message += "✅ РАБОЧИЕ ПРОКСИ:\n"
+                for proxy in working_proxies[:5]:  # Показываем первые 5
+                    message += f"• {proxy}\n"
+                    
+            if failed_proxies:
+                message += "\n❌ НЕИСПРАВНЫЕ ПРОКСИ:\n"
+                for proxy in failed_proxies[:5]:  # Показываем первые 5
+                    message += f"• {proxy}\n"
+                    
+        elif action == "reset":
+            # Сброс всех списков
+            advanced_system.proxy_whitelist.clear()
+            advanced_system.proxy_blacklist.clear()
+            advanced_system.proxy_recovery_attempts = 0
+            advanced_system.mode_switch_count = 0
+            
+            # Сброс здоровья всех прокси
+            for proxy in advanced_system.proxies:
+                proxy['health_score'] = 100
+                proxy['errors'] = 0
+                proxy['success'] = 0
+                
+            message = "🔄 СБРОС САМОВОССТАНАВЛИВАЮЩЕЙСЯ СИСТЕМЫ:\n\n"
+            message += "✅ Whitelist очищен\n"
+            message += "✅ Blacklist очищен\n"
+            message += "✅ Счетчики восстановления сброшены\n"
+            message += "✅ Здоровье прокси восстановлено\n"
+            
+        elif action == "force_proxy":
+            # Принудительное включение прокси
+            advanced_system.proxy_mode = "enabled"
+            advanced_system._rotate_proxy()
+            message = "🔧 ПРИНУДИТЕЛЬНОЕ ВКЛЮЧЕНИЕ ПРОКСИ:\n\n"
+            message += "✅ Режим прокси включен\n"
+            if advanced_system.current_proxy:
+                message += f"🔄 Текущий прокси: {advanced_system.current_proxy['host']}:{advanced_system.current_proxy['port']}\n"
+                
+        elif action == "force_noproxy":
+            # Принудительное отключение прокси
+            advanced_system.proxy_mode = "disabled"
+            advanced_system.current_proxy = None
+            message = "🚫 ПРИНУДИТЕЛЬНОЕ ОТКЛЮЧЕНИЕ ПРОКСИ:\n\n"
+            message += "✅ Режим прокси отключен\n"
+            
+        else:
+            message = "❌ Неизвестное действие. Доступные действия:\n"
+            message += "• /recovery test - тестирование прокси\n"
+            message += "• /recovery reset - сброс системы\n"
+            message += "• /recovery force_proxy - принудительное включение прокси\n"
+            message += "• /recovery force_noproxy - принудительное отключение прокси\n"
+    else:
+        # Показываем статус самовосстановления
+        stats = advanced_system.get_stats()
+        message = "🔄 СТАТУС САМОВОССТАНАВЛИВАЮЩЕЙСЯ СИСТЕМЫ:\n\n"
+        message += f"📊 Режим: {stats['proxy_mode']}\n"
+        message += f"📋 Whitelist: {stats['proxy_whitelist_count']} прокси\n"
+        message += f"🚫 Blacklist: {stats['proxy_blacklist_count']} прокси\n"
+        message += f"🔄 Попыток восстановления: {stats['proxy_recovery_attempts']}/5\n"
+        message += f"🔄 Переключений режимов: {stats['mode_switch_count']}\n"
+        message += f"📊 Последнее переключение: {stats['last_mode_switch']}\n\n"
+        
+        message += "📖 Доступные команды:\n"
+        message += "• /recovery test - тестирование прокси\n"
+        message += "• /recovery reset - сброс системы\n"
+        message += "• /recovery force_proxy - принудительное включение прокси\n"
+        message += "• /recovery force_noproxy - принудительное отключение прокси\n"
+    
+    await telegram_antiblock.safe_send_message(update.effective_chat.id, message)
+
 async def setup_bot():
     application = Application.builder().token(Config.telegram_bot_token).build()
     
@@ -778,6 +896,7 @@ async def setup_bot():
     application.add_handler(CommandHandler("proxy", proxy_command))
     application.add_handler(CommandHandler("system", system_command))
     application.add_handler(CommandHandler("redeploy", redeploy_command))
+    application.add_handler(CommandHandler("recovery", recovery_command))
     application.add_handler(CommandHandler("reset", reset_command))
     application.add_handler(CommandHandler("mode", mode_command))
     
