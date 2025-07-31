@@ -386,23 +386,7 @@ def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
                 used_system = "advanced"
             else:
                 logging.warning(f"⚠️ Продвинутая система не вернула данные для {topic_name}")
-                logging.warning(f"⚠️ HTTP заблокирован, пробуем браузер...")
-                # Попытка браузерного запроса
-                try:
-                    import asyncio
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    browser_data = loop.run_until_complete(advanced_system.make_browser_request(url, params))
-                    loop.close()
-                    
-                    if browser_data:
-                        data = browser_data
-                        used_system = "browser"
-                        logging.info(f"✅ БРАУЗЕРНАЯ СИСТЕМА: Found {len(data.get('items', []))} items for {topic_name}")
-                    else:
-                        logging.warning(f"⚠️ Браузер тоже не вернул данные для {topic_name}")
-                except Exception as e:
-                    logging.error(f"❌ Ошибка браузерного запроса: {e}")
+                logging.info(f"🛡️ [{topic_name}] Запрос через БАЗОВУЮ систему")
                 
         except Exception as e:
             logging.error(f"❌ Ошибка продвинутой системы: {e}")
@@ -497,7 +481,6 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logging.info(f"📊 СТАТУС КОМАНДА: Получена статистика: {stats}")
         anti_info += f"\n🚀 Продвинутая система:"
         anti_info += f"\n   📊 HTTP: {stats['http_success']}/{stats['http_requests']}"
-        anti_info += f"\n   🌐 Browser: {stats['browser_success']}/{stats['browser_requests']}"
         anti_info += f"\n   📈 Успешность: {stats['success_rate']:.1f}%"
         anti_info += f"\n   ⚠️ Ошибок подряд: {advanced_system_errors}/{max_system_errors}"
         anti_info += f"\n   🔄 Режим: {system_mode}"
@@ -595,9 +578,7 @@ async def proxy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         stats = advanced_system.get_stats()
         message = "🚀 СТАТУС ПРОДВИНУТОЙ СИСТЕМЫ:\n\n"
         message += f"📊 HTTP запросы: {stats['http_success']}/{stats['http_requests']}\n"
-        message += f"🌐 Browser запросы: {stats['browser_success']}/{stats['browser_requests']}\n" 
         message += f"📈 Общая успешность: {stats['success_rate']:.1f}%\n"
-        message += f"🔥 Браузер: {'✅ Доступен' if stats['browser_available'] else '❌ Недоступен'}\n"
         message += f"📡 Прокси: ❌ Отключены\n"
         message += f"🔄 Режим: Без прокси\n"
         message += f"⚠️ Ошибки 403: {stats['errors_403']}\n"

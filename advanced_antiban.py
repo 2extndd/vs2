@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Продвинутая система антибана с браузерной эмуляцией и прокси
-Для стабильной версии v1.0
+Продвинутая система антибана только с HTTP запросами
+Для стабильной версии v1.1 (Railway compatible)
 """
 
 import asyncio
@@ -14,12 +14,8 @@ from typing import Dict, List, Optional
 from fake_useragent import UserAgent
 import Config
 
-try:
-    from playwright.async_api import async_playwright, Browser, Page, BrowserContext
-    PLAYWRIGHT_AVAILABLE = True
-except ImportError:
-    PLAYWRIGHT_AVAILABLE = False
-    logging.warning("⚠️ Playwright недоступен, используется только HTTP режим")
+# Используется только HTTP режим для Railway совместимости
+PLAYWRIGHT_AVAILABLE = False
 
 class AdvancedAntiBan:
     """Продвинутая двухуровневая система антибана"""
@@ -27,13 +23,6 @@ class AdvancedAntiBan:
     def __init__(self):
         self.ua = UserAgent()
         self.session = requests.Session()
-        
-        # Состояние браузерной системы
-        self.playwright = None
-        self.browser = None
-        self.context = None  
-        self.page = None
-        self.browser_available = False
         
         # Настройки системы
         self.max_retries = 3
@@ -44,8 +33,6 @@ class AdvancedAntiBan:
         # Статистика
         self.http_requests = 0
         self.http_success = 0
-        self.browser_requests = 0
-        self.browser_success = 0
         self.errors_403 = 0
         self.errors_429 = 0
         self.errors_521 = 0
@@ -110,86 +97,14 @@ class AdvancedAntiBan:
         self.current_delay = 1.0
         self.consecutive_errors = 0
     
-    async def initialize_browser(self):
-        """Инициализация браузерной системы"""
-        if not PLAYWRIGHT_AVAILABLE:
-            return False
-            
-        try:
-            self.playwright = await async_playwright().start()
-            
-            # Настройки для обхода детекции
-            browser_args = [
-                '--no-sandbox',
-                '--disable-setuid-sandbox', 
-                '--disable-dev-shm-usage',
-                '--disable-blink-features=AutomationControlled',
-                '--disable-features=TranslateUI',
-                '--disable-ipc-flooding-protection',
-                '--user-agent=' + self.ua.random
-            ]
-            
-            # Запуск браузера БЕЗ прокси
-            self.browser = await self.playwright.chromium.launch(
-                headless=True,
-                args=browser_args
-            )
-            
-            # Создание контекста с антидетекцией
-            self.context = await self.browser.new_context(
-                viewport={'width': 1920, 'height': 1080},
-                user_agent=self.ua.random,
-                locale='en-US',
-                timezone_id='America/New_York',
-                extra_http_headers=self.get_random_headers()
-            )
-            
-            # Добавляем скрипты для обхода детекции
-            await self.context.add_init_script("""
-                Object.defineProperty(navigator, 'webdriver', {
-                    get: () => undefined,
-                });
-                Object.defineProperty(navigator, 'plugins', {
-                    get: () => [1, 2, 3, 4, 5],
-                });
-                Object.defineProperty(navigator, 'languages', {
-                    get: () => ['en-US', 'en'],
-                });
-            """)
-            
-            self.page = await self.context.new_page()
-            self.page.set_default_timeout(30000)
-            
-            self.browser_available = True
-            logging.info("✅ Браузерная система инициализирована")
-            return True
-            
-        except Exception as e:
-            logging.error(f"❌ Ошибка инициализации браузера: {e}")
-            self.browser_available = False
-            return False
-    
+
     def make_http_request(self, url: str, params: dict, cookies: dict = None) -> Optional[dict]:
         """HTTP запрос с антибаном"""
         logging.info(f"🚀 Продвинутая система (ID: {id(self)}): Начинаем HTTP запрос")
         self.http_requests += 1
         self.session_requests += 1
         
-        # Автоматическая инициализация браузера при первом запросе
-        if not self.browser_available and PLAYWRIGHT_AVAILABLE:
-            try:
-                import asyncio
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                success = loop.run_until_complete(self.initialize_browser())
-                loop.close()
-                if success:
-                    logging.info("✅ Браузер автоматически инициализирован")
-                else:
-                    logging.warning("⚠️ Автоматическая инициализация браузера не удалась")
-            except Exception as e:
-                logging.error(f"❌ Ошибка автоматической инициализации: {e}")
-        
+
         # Используем переданные cookies или получаем новые
         if cookies is None:
             try:
@@ -273,61 +188,7 @@ class AdvancedAntiBan:
             self.consecutive_errors += 1
             return None
     
-    async def make_browser_request(self, url: str, params: dict) -> Optional[dict]:
-        """Браузерный запрос с обработкой JS"""
-        if not self.browser_available:
-            return None
-            
-        self.browser_requests += 1
-        
-        try:
-            # Формирование URL с параметрами
-            param_str = '&'.join([f"{k}={v}" for k, v in params.items()])
-            full_url = f"{url}?{param_str}"
-            
-            # Навигация с обработкой Cloudflare
-            await self.page.goto(full_url, wait_until='networkidle')
-            
-            # Ждем возможных редиректов Cloudflare
-            await asyncio.sleep(random.uniform(2, 5))
-            
-            # Попытка найти JSON данные
-            try:
-                # Метод 1: Прямое чтение ответа как JSON
-                content = await self.page.content()
-                if content.strip().startswith('{'):
-                    data = json.loads(content)
-                    self.browser_success += 1
-                    self.reset_backoff()
-                    return data
-                
-                # Метод 2: Поиск JSON в элементах страницы  
-                json_element = await self.page.query_selector('pre')
-                if json_element:
-                    json_text = await json_element.text_content()
-                    if json_text.strip().startswith('{'):
-                        data = json.loads(json_text)
-                        self.browser_success += 1
-                        self.reset_backoff()
-                        return data
-                        
-            except json.JSONDecodeError:
-                pass
-            
-            # Проверка на блокировку Cloudflare
-            title = await self.page.title()
-            if 'cloudflare' in title.lower() or 'checking' in title.lower():
-                logging.warning("🌩️ Обнаружена страница Cloudflare")
-                await asyncio.sleep(10)  # Ждем прохождения проверки
-                return None
-                
-            logging.warning("⚠️ Браузер: не найден JSON ответ")
-            return None
-            
-        except Exception as e:
-            logging.error(f"❌ Браузерная ошибка: {e}")
-            return None
-    
+
     def refresh_session(self):
         """Обновление HTTP сессии"""
         self.session.close()
@@ -340,14 +201,6 @@ class AdvancedAntiBan:
     async def close(self):
         """Закрытие ресурсов"""
         try:
-            if self.page:
-                await self.page.close()
-            if self.context:
-                await self.context.close()
-            if self.browser:
-                await self.browser.close()
-            if self.playwright:
-                await self.playwright.stop()
             self.session.close()
             logging.info("✅ Продвинутая система закрыта")
         except Exception as e:
@@ -355,14 +208,14 @@ class AdvancedAntiBan:
     
     def get_stats(self):
         """Получение статистики"""
-        total_requests = self.http_requests + self.browser_requests
-        total_success = self.http_success + self.browser_success
+        total_requests = self.http_requests
+        total_success = self.http_success
         
         stats = {
             'http_requests': self.http_requests,
             'http_success': self.http_success,
-            'browser_requests': self.browser_requests,
-            'browser_success': self.browser_success,
+            'browser_requests': 0,
+            'browser_success': 0,
             'total_requests': total_requests,
             'total_success': total_success,
             'success_rate': (total_success / max(total_requests, 1)) * 100,
@@ -370,12 +223,12 @@ class AdvancedAntiBan:
             'errors_429': self.errors_429,
             'errors_521': self.errors_521,
             'consecutive_errors': self.consecutive_errors,
-            'browser_available': self.browser_available,
+            'browser_available': False,
             'proxies_count': 0,  # Без прокси
             'current_proxy': None  # Без прокси
         }
         
-        logging.info(f"📊 Статистика продвинутой системы (ID: {id(self)}): HTTP={self.http_requests}/{self.http_success}, Browser={self.browser_requests}/{self.browser_success}")
+        logging.info(f"📊 Статистика продвинутой системы (ID: {id(self)}): HTTP={self.http_requests}/{self.http_success}")
         return stats
 
 # Глобальный экземпляр (синглтон)
