@@ -52,9 +52,15 @@ class VintedAntiBlock:
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/121.0"
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/121.0",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
         ]
         self.request_count = 0
+        self.success_count = 0
+        self.error_count = 0
+        self.blocked_count = 0
 
     def get_headers(self):
         return {
@@ -67,23 +73,39 @@ class VintedAntiBlock:
         }
 
     def delay(self):
-        """Задержки между запросами"""
+        """Адаптивные задержки между запросами"""
         self.request_count += 1
-        delay = random.uniform(0.5, 2.0)
+        
+        # Базовая задержка
+        base_delay = random.uniform(0.5, 2.0)
+        
+        # Адаптивная задержка на основе ошибок
+        if self.error_count > self.success_count:
+            base_delay *= 1.5  # Увеличиваем при ошибках
+        
+        # Дополнительная задержка каждые 10 запросов
         if self.request_count % 10 == 0:
-            delay += random.uniform(2, 5)
-        time.sleep(delay)
+            base_delay += random.uniform(2, 5)
+        
+        # Экстренная задержка при блокировке
+        if self.blocked_count > 0:
+            base_delay += random.uniform(3, 8)
+        
+        time.sleep(base_delay)
+        return base_delay
 
     def handle_errors(self, response):
-        """Обработка ошибок HTTP"""
+        """Улучшенная обработка ошибок HTTP"""
         if response.status_code == 429:
+            self.blocked_count += 1
             wait = random.uniform(60, 120)
-            logging.warning(f"Rate limit! Wait {wait:.0f}s")
+            logging.warning(f"🚫 Rate limit! Блокировок: {self.blocked_count}, ждем {wait:.0f}s")
             time.sleep(wait)
             return True
         elif response.status_code in [403, 503]:
+            self.blocked_count += 1
             wait = random.uniform(30, 60)
-            logging.warning(f"Blocked! Wait {wait:.0f}s")
+            logging.warning(f"🚫 Blocked! Блокировок: {self.blocked_count}, ждем {wait:.0f}s")
             time.sleep(wait)
             return True
         elif response.status_code == 521:
@@ -113,25 +135,36 @@ class TelegramAntiBlock:
     def __init__(self):
         self.message_count = 0
         self.last_message_time = 0
+        self.success_count = 0
+        self.error_count = 0
+        self.rate_limited = 0
         
     def safe_delay(self):
-        """Защита от флуда - 3 секунды между сообщениями"""
+        """Адаптивная защита от флуда"""
         self.message_count += 1
         current_time = time.time()
         
-        # Минимум 3 секунды между сообщениями
+        # Минимальная задержка
+        min_delay = 3.0
+        
+        # Адаптивная задержка на основе ошибок
+        if self.error_count > self.success_count:
+            min_delay = 5.0  # Увеличиваем при ошибках
+        
+        # Проверяем время с последнего сообщения
         time_since_last = current_time - self.last_message_time
-        if time_since_last < 3.0:
-            sleep_time = 3.0 - time_since_last
+        if time_since_last < min_delay:
+            sleep_time = min_delay - time_since_last
             time.sleep(sleep_time)
         
-        # Дополнительная защита: каждые 20 сообщений - пауза 3-5 сек
-        if self.message_count % 20 == 0:
-            extra_delay = random.uniform(3, 5)
+        # Дополнительная защита: каждые 10 сообщений - пауза 3-8 сек
+        if self.message_count % 10 == 0:
+            extra_delay = random.uniform(3, 8)
             logging.info(f"🛡️ TG Anti-flood: {extra_delay:.1f}s pause after {self.message_count} messages")
             time.sleep(extra_delay)
         
         self.last_message_time = time.time()
+        return min_delay
 
 # Global instances
 vinted_antiblock = VintedAntiBlock()
@@ -211,7 +244,7 @@ def send_slack_message(item_title, item_price, item_url, item_image, item_size=N
 
 def send_telegram_message(item_title, item_price, item_url, item_image, item_size=None, thread_id=None):
     try:
-        # Защита от флуда
+        # Адаптивная защита от флуда
         telegram_antiblock.safe_delay()
         
         size_text = f"\n👕 {item_size}" if item_size else ""
@@ -243,13 +276,16 @@ def send_telegram_message(item_title, item_price, item_url, item_image, item_siz
             )
             
             if response.status_code == 200:
+                telegram_antiblock.success_count += 1
                 logging.info(f"✅ Sent to topic {thread_id}")
                 return True
             else:
+                telegram_antiblock.error_count += 1
                 # Обработка 429 (Too Many Requests)
                 if response.status_code == 429:
+                    telegram_antiblock.rate_limited += 1
                     retry_after = response.json().get("parameters", {}).get("retry_after", 30)
-                    logging.warning(f"🚫 TG Rate limit! Waiting {retry_after}s")
+                    logging.warning(f"🚫 TG Rate limit! Rate limits: {telegram_antiblock.rate_limited}, waiting {retry_after}s")
                     time.sleep(retry_after + 2)  # +2 сек запас
                 add_error(f"TG topic: {response.status_code}", "telegram")
         
@@ -268,13 +304,16 @@ def send_telegram_message(item_title, item_price, item_url, item_image, item_siz
         )
         
         if response.status_code == 200:
+            telegram_antiblock.success_count += 1
             logging.info("✅ Sent to main chat")
             return True
         else:
+            telegram_antiblock.error_count += 1
             # Обработка 429 (Too Many Requests)
             if response.status_code == 429:
+                telegram_antiblock.rate_limited += 1
                 retry_after = response.json().get("parameters", {}).get("retry_after", 30)
-                logging.warning(f"🚫 TG Rate limit! Waiting {retry_after}s")
+                logging.warning(f"🚫 TG Rate limit! Rate limits: {telegram_antiblock.rate_limited}, waiting {retry_after}s")
                 time.sleep(retry_after + 2)  # +2 сек запас
             add_error(f"TG main: {response.status_code}", "telegram")
             return False
@@ -409,6 +448,9 @@ def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
             logging.info(f"✅ Vinted снова доступен! Сбрасываем счетчик ошибок 521")
             vinted_521_count = 0
         
+        # Отслеживаем успешные запросы
+        vinted_antiblock.success_count += 1
+        
         data = response.json()
 
         if data and "items" in data:
@@ -450,6 +492,9 @@ def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
         else:
             logging.warning(f"No items: {topic_name}")
     else:
+        # Отслеживаем ошибки
+        vinted_antiblock.error_count += 1
+        
         if response.status_code == 521:
             logging.error(f"❌ Vinted сервер недоступен (521) для топика: {topic_name}")
             add_error(f"HTTP 521 - сервер недоступен", "vinted")
@@ -471,7 +516,11 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     mode_info = f"\n{mode_emoji} Mode: {scan_mode} ({mode_interval})"
     
     anti_info = f"\n🛡️ Vinted requests: {vinted_antiblock.request_count}"
+    anti_info += f"\n🌐 Vinted success/errors: {vinted_antiblock.success_count}/{vinted_antiblock.error_count}"
+    anti_info += f"\n🚫 Vinted blocks: {vinted_antiblock.blocked_count}"
     anti_info += f"\n📱 Telegram messages: {telegram_antiblock.message_count}"
+    anti_info += f"\n📱 TG success/errors: {telegram_antiblock.success_count}/{telegram_antiblock.error_count}"
+    anti_info += f"\n🚫 TG rate limits: {telegram_antiblock.rate_limited}"
     anti_info += f"\n🔥 Priority: {', '.join(PRIORITY_TOPICS)}"
     if vinted_521_count > 0:
         anti_info += f"\n⚠️ 521 errors: {vinted_521_count}"
