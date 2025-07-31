@@ -378,6 +378,16 @@ class AdvancedAntiBan:
         logging.info(f"📊 Статистика продвинутой системы (ID: {id(self)}): HTTP={self.http_requests}/{self.http_success}, Browser={self.browser_requests}/{self.browser_success}")
         return stats
 
-# Глобальный экземпляр
-advanced_system = AdvancedAntiBan()
-logging.info(f"🚀 Продвинутая система инициализирована: {id(advanced_system)}")
+# Глобальный экземпляр (синглтон)
+_advanced_system_instance = None
+
+def get_advanced_system():
+    """Получение глобального экземпляра продвинутой системы"""
+    global _advanced_system_instance
+    if _advanced_system_instance is None:
+        _advanced_system_instance = AdvancedAntiBan()
+        logging.info(f"🚀 Продвинутая система инициализирована: {id(_advanced_system_instance)}")
+    return _advanced_system_instance
+
+# Для обратной совместимости
+advanced_system = get_advanced_system()

@@ -45,9 +45,10 @@ PRIORITY_TOPICS = ["bags", "bags 2"]
 
 # ПРОДВИНУТАЯ АНТИБАН СИСТЕМА
 try:
-    from advanced_antiban import advanced_system
+    from advanced_antiban import get_advanced_system
+    advanced_system = get_advanced_system()
     ADVANCED_SYSTEM_AVAILABLE = True
-    logging.info("🚀 Продвинутая антибан система загружена")
+    logging.info(f"🚀 Продвинутая антибан система загружена (ID: {id(advanced_system)})")
 except ImportError as e:
     ADVANCED_SYSTEM_AVAILABLE = False
     logging.warning(f"⚠️ Продвинутая система недоступна: {e}")
@@ -491,7 +492,9 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Информация о двухуровневой системе
     if ADVANCED_SYSTEM_AVAILABLE:
+        logging.info(f"📊 СТАТУС КОМАНДА: ID системы: {id(advanced_system)}")
         stats = advanced_system.get_stats()
+        logging.info(f"📊 СТАТУС КОМАНДА: Получена статистика: {stats}")
         anti_info += f"\n🚀 Продвинутая система:"
         anti_info += f"\n   📊 HTTP: {stats['http_success']}/{stats['http_requests']}"
         anti_info += f"\n   🌐 Browser: {stats['browser_success']}/{stats['browser_requests']}"
