@@ -626,6 +626,15 @@ class AdvancedAntiBan:
                     self.no_proxy_success += 1  # Счетчик успешных запросов без прокси
                 self.reset_backoff()
                 
+                # Защита от неправильных значений счетчиков
+                if self.proxy_success > self.proxy_requests:
+                    logging.warning(f"🔧 ИСПРАВЛЕНИЕ: proxy_success ({self.proxy_success}) > proxy_requests ({self.proxy_requests})")
+                    self.proxy_success = self.proxy_requests
+                
+                if self.no_proxy_success > self.no_proxy_requests:
+                    logging.warning(f"🔧 ИСПРАВЛЕНИЕ: no_proxy_success ({self.no_proxy_success}) > no_proxy_requests ({self.no_proxy_requests})")
+                    self.no_proxy_success = self.no_proxy_requests
+                
                 # Сохранение куки
                 self.session_cookies.update(response.cookies)
                 

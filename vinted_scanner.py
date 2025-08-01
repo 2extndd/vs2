@@ -577,8 +577,24 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         overall_success_rate = (total_success / total_requests * 100) if total_requests > 0 else 0
         
         anti_info += f"\n🚀 Продвинутая система:"
-        anti_info += f"\n   📊 HTTP (без прокси): {stats.get('no_proxy_success', 0)}/{stats.get('no_proxy_requests', 0)}"
-        anti_info += f"\n   📊 HTTP (с прокси): {stats.get('proxy_success', 0)}/{stats.get('proxy_requests', 0)}"
+        
+        # Защита от неправильных значений счетчиков
+        no_proxy_success = stats.get('no_proxy_success', 0)
+        no_proxy_requests = stats.get('no_proxy_requests', 0)
+        proxy_success = stats.get('proxy_success', 0)
+        proxy_requests = stats.get('proxy_requests', 0)
+        
+        # Исправляем неправильные значения
+        if proxy_success > proxy_requests and proxy_requests > 0:
+            proxy_success = proxy_requests
+            logging.warning(f"🔧 ИСПРАВЛЕНИЕ СЧЕТЧИКОВ: proxy_success ({proxy_success}) > proxy_requests ({proxy_requests})")
+        
+        if no_proxy_success > no_proxy_requests and no_proxy_requests > 0:
+            no_proxy_success = no_proxy_requests
+            logging.warning(f"🔧 ИСПРАВЛЕНИЕ СЧЕТЧИКОВ: no_proxy_success ({no_proxy_success}) > no_proxy_requests ({no_proxy_requests})")
+        
+        anti_info += f"\n   📊 HTTP (без прокси): {no_proxy_success}/{no_proxy_requests}"
+        anti_info += f"\n   📊 HTTP (с прокси): {proxy_success}/{proxy_requests}"
         anti_info += f"\n   📡 Прокси: {stats['proxies_count']} активных"
         anti_info += f"\n   ⚠️ Ошибок подряд: {advanced_system_errors}/{max_system_errors}"
         anti_info += f"\n   🔄 Режим: {system_mode}"
