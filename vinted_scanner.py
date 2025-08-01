@@ -87,6 +87,7 @@ def should_switch_system():
         logging.info(f"🔄 ПЕРЕКЛЮЧЕНИЕ: basic -> advanced_no_proxy (ошибок: {basic_system_errors})")
         current_system = "advanced_no_proxy"
         basic_system_errors = 0  # Сбрасываем счетчик ошибок
+        last_switch_time = current_time
         return True
         
     # Логика переключения с продвинутой без прокси на продвинутую с прокси
@@ -94,6 +95,7 @@ def should_switch_system():
         logging.info(f"🔄 ПЕРЕКЛЮЧЕНИЕ: advanced_no_proxy -> advanced_proxy (ошибок: {advanced_no_proxy_errors})")
         current_system = "advanced_proxy"
         advanced_no_proxy_errors = 0
+        last_switch_time = current_time
         return True
         
     # Логика переключения обратно на продвинутую без прокси (экономия трафика)
@@ -627,11 +629,54 @@ def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
                 logging.error(f"❌ Ошибка продвинутой системы без прокси: {e}")
                 update_system_stats("advanced_no_proxy", success=False)
         
-        # Fallback на базовую систему
+        # Fallback на базовую систему (временный, не меняем current_system)
         if not data:
-            logging.info(f"🛡️ [{topic_name}] Fallback на БАЗОВУЮ систему")
-            current_system = "basic"
-            return scan_topic(topic_name, topic_data, cookies, session, is_priority)
+            logging.info(f"🛡️ [{topic_name}] ВРЕМЕННЫЙ fallback на БАЗОВУЮ систему")
+            
+            topic_headers = vinted_antiblock.get_headers()
+            max_retries = 3
+            
+            for attempt in range(max_retries):
+                try:
+                    response = requests.get(
+                        f"{Config.vinted_url}/api/v2/catalog/items", 
+                        params=params, 
+                        cookies=cookies, 
+                        headers=topic_headers,
+                        timeout=timeoutconnection
+                    )
+
+                    if vinted_antiblock.handle_errors(response):
+                        if attempt < max_retries - 1:
+                            logging.info(f"🔄 Повторная попытка {attempt + 1}/{max_retries}")
+                            time.sleep(random.uniform(2, 5))
+                            continue
+                        else:
+                            logging.error(f"❌ Все попытки исчерпаны для {topic_name}")
+                            return
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        logging.info(f"✅ ВРЕМЕННЫЙ FALLBACK: Успешный запрос через базовую систему")
+                        break
+                    else:
+                        logging.error(f"Error {response.status_code}: {topic_name}")
+                        add_error(f"HTTP {response.status_code}", "vinted")
+                        
+                        if attempt < max_retries - 1:
+                            time.sleep(random.uniform(2, 5))
+                            continue
+                        else:
+                            return
+                            
+                except Exception as e:
+                    logging.error(f"❌ Ошибка запроса: {e}")
+                    if attempt < max_retries - 1:
+                        time.sleep(random.uniform(2, 5))
+                        continue
+                    else:
+                        add_error(f"Request error: {str(e)[:30]}", "vinted")
+                        return
     
     elif current_system == "advanced_proxy":
         # ПРОДВИНУТАЯ СИСТЕМА С ПРОКСИ
@@ -658,11 +703,26 @@ def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
                 logging.error(f"❌ Ошибка продвинутой системы с прокси: {e}")
                 update_system_stats("advanced_proxy", success=False)
         
-        # Fallback на продвинутую без прокси
+        # Fallback на продвинутую без прокси (временный, не меняем current_system)
         if not data:
-            logging.info(f"🛡️ [{topic_name}] Fallback на ПРОДВИНУТУЮ БЕЗ ПРОКСИ")
-            current_system = "advanced_no_proxy"
-            return scan_topic(topic_name, topic_data, cookies, session, is_priority)
+            logging.info(f"🛡️ [{topic_name}] ВРЕМЕННЫЙ fallback на ПРОДВИНУТУЮ БЕЗ ПРОКСИ")
+            
+            if ADVANCED_SYSTEM_AVAILABLE:
+                try:
+                    # Настраиваем продвинутую систему на работу без прокси
+                    advanced_system.proxy_mode = "disabled"
+                    advanced_system.current_proxy = None
+                    
+                    url = f"{Config.vinted_url}/api/v2/catalog/items"
+                    data = advanced_system.make_http_request(url, params, cookies)
+                    
+                    if data and "items" in data:
+                        logging.info(f"✅ ВРЕМЕННЫЙ FALLBACK: Found {len(data.get('items', []))} items через продвинутую без прокси")
+                    else:
+                        logging.warning(f"⚠️ Временный fallback не вернул данные для {topic_name}")
+                        
+                except Exception as e:
+                    logging.error(f"❌ Ошибка временного fallback: {e}")
     
     # Обработка полученных данных
     if data and "items" in data:
