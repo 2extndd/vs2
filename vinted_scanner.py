@@ -82,6 +82,13 @@ def should_switch_system():
     
     current_time = time.time()
     
+    # НОВАЯ ЛОГИКА: Принудительное переключение на продвинутую систему после определенного времени
+    if current_system == "basic" and current_time - last_switch_time >= 300:  # 5 минут
+        logging.info(f"🔄 ПРИНУДИТЕЛЬНОЕ ПЕРЕКЛЮЧЕНИЕ: basic -> advanced_no_proxy (время работы: 5 минут)")
+        current_system = "advanced_no_proxy"
+        last_switch_time = current_time
+        return True
+    
     # Логика переключения с базовой на продвинутую без прокси
     if current_system == "basic" and basic_system_errors >= max_errors_before_switch:
         logging.info(f"🔄 ПЕРЕКЛЮЧЕНИЕ: basic -> advanced_no_proxy (ошибок: {basic_system_errors})")
@@ -1178,6 +1185,19 @@ async def recovery_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 
             except Exception as e:
                 message = f"❌ Ошибка отключения прокси: {str(e)[:100]}"
+                
+        elif action == "force_advanced":
+            # Принудительное переключение на продвинутую систему
+            try:
+                global current_system
+                current_system = "advanced_no_proxy"
+                message = "🚀 ПРИНУДИТЕЛЬНОЕ ПЕРЕКЛЮЧЕНИЕ НА ПРОДВИНУТУЮ СИСТЕМУ:\n\n"
+                message += "✅ Система переключена на advanced_no_proxy\n"
+                message += "✅ Прокси отключены\n"
+                message += "🔄 Готов к работе с продвинутой системой\n"
+                
+            except Exception as e:
+                message = f"❌ Ошибка переключения: {str(e)[:100]}"
             
         else:
             message = "❌ Неизвестное действие. Доступные действия:\n"
@@ -1185,6 +1205,7 @@ async def recovery_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             message += "• /recovery reset - сброс системы\n"
             message += "• /recovery force_proxy - принудительное включение прокси\n"
             message += "• /recovery force_noproxy - принудительное отключение прокси\n"
+            message += "• /recovery force_advanced - принудительное переключение на продвинутую систему\n"
     else:
         # Показываем статус самовосстановления
         try:
