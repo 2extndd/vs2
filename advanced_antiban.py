@@ -541,16 +541,32 @@ class AdvancedAntiBan:
             logging.info(f"🔧 Профиль: {self.current_profile['name']}")
             
             # УМНАЯ САМОВОССТАНАВЛИВАЮЩАЯСЯ СИСТЕМА ПРОКСИ
-            if self._should_use_proxy() and self.current_proxy:
-                logging.info(f"🔧 Прокси: {self.current_proxy['host']}:{self.current_proxy['port']} (режим: {self.proxy_mode})")
-                proxy_dict = {
-                    'http': self.current_proxy['http'],
-                    'https': self.current_proxy['https']
-                }
-                # Обновляем статистику прокси
-                self.current_proxy['requests'] += 1
-                self.proxy_rotation_count += 1
-                self.proxy_requests += 1  # НОВАЯ СТАТИСТИКА
+            if self._should_use_proxy():
+                # Если нужно использовать прокси, но его нет - включаем
+                if not self.current_proxy and self.proxies:
+                    logging.info(f"🔄 АВТОМАТИЧЕСКОЕ ВКЛЮЧЕНИЕ ПРОКСИ (ошибок: {self.errors_403 + self.errors_429 + self.errors_521})")
+                    self.proxy_mode = "enabled"
+                    self._rotate_proxy()
+                # Если прокси нужен и режим auto - переключаемся на enabled
+                elif self.proxy_mode == "auto" and self.current_proxy:
+                    logging.info(f"🔄 ПЕРЕКЛЮЧЕНИЕ РЕЖИМА: auto -> enabled (ошибок: {self.errors_403 + self.errors_429 + self.errors_521})")
+                    self.proxy_mode = "enabled"
+                
+                if self.current_proxy:
+                    logging.info(f"🔧 Прокси: {self.current_proxy['host']}:{self.current_proxy['port']} (режим: {self.proxy_mode})")
+                    proxy_dict = {
+                        'http': self.current_proxy['http'],
+                        'https': self.current_proxy['https']
+                    }
+                    # Обновляем статистику прокси
+                    self.current_proxy['requests'] += 1
+                    self.proxy_rotation_count += 1
+                    self.proxy_requests += 1  # НОВАЯ СТАТИСТИКА
+                else:
+                    logging.warning(f"⚠️ Прокси нужен, но недоступен (режим: {self.proxy_mode})")
+                    proxy_dict = None
+                    self.proxy_rotation_count += 1
+                    self.no_proxy_requests += 1  # НОВАЯ СТАТИСТИКА
             else:
                 logging.info(f"🔧 Прокси: ❌ Отключен (режим: {self.proxy_mode})")
                 proxy_dict = None
