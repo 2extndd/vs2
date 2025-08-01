@@ -154,7 +154,7 @@ topics = {
         "exclude_catalog_ids": "26,98,146,139"
     },
     "Y-3 and Y's": {
-        "thread_id": 331,
+        "thread_id": 8241,
         "query": {
             'page': '1',
             'per_page': '2',
@@ -206,7 +206,7 @@ topics = {
         "exclude_catalog_ids": "26,98,146,139"
     },
     "CDG + Junya": {
-        "thread_id": 340,
+        "thread_id": 8247,
         "query": {
             'page': '1',
             'per_page': '2',
