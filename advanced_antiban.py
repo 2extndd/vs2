@@ -44,6 +44,8 @@ class AdvancedAntiBan:
         # НОВАЯ СТАТИСТИКА ЭКОНОМИИ ТРАФИКА
         self.proxy_requests = 0
         self.no_proxy_requests = 0
+        self.proxy_success = 0
+        self.no_proxy_success = 0
         
         # Система прокси
         self.proxies = []
@@ -552,7 +554,10 @@ class AdvancedAntiBan:
                 if self.current_proxy:
                     self.current_proxy['success'] += 1
                     self.proxy_successes += 1
+                    self.proxy_success += 1  # Счетчик успешных запросов с прокси
                     self._update_proxy_health(self.current_proxy, True)
+                else:
+                    self.no_proxy_success += 1  # Счетчик успешных запросов без прокси
                 self.reset_backoff()
                 
                 # Сохранение куки
@@ -702,7 +707,9 @@ class AdvancedAntiBan:
             'last_mode_switch': self.last_mode_switch,
             # НОВАЯ СТАТИСТИКА ЭКОНОМИИ ТРАФИКА
             'proxy_requests': self.proxy_requests,
-            'no_proxy_requests': self.no_proxy_requests
+            'no_proxy_requests': self.no_proxy_requests,
+            'proxy_success': self.proxy_success,
+            'no_proxy_success': self.no_proxy_success
         }
         
         return stats

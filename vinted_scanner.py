@@ -70,6 +70,8 @@ class VintedAntiBlock:
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/121.0"
         ]
         self.request_count = 0
+        self.success_count = 0
+        self.total_requests = 0
 
     def get_headers(self):
         return {
@@ -102,6 +104,15 @@ class VintedAntiBlock:
             time.sleep(wait)
             return True
         return False
+    
+    def get_stats(self):
+        """Получение статистики базовой системы"""
+        success_rate = (self.success_count / self.total_requests * 100) if self.total_requests > 0 else 0
+        return {
+            'total_requests': self.total_requests,
+            'success_count': self.success_count,
+            'success_rate': success_rate
+        }
 
 # ANTI-BLOCKING SYSTEM FOR TELEGRAM
 class TelegramAntiBlock:
@@ -459,6 +470,8 @@ def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
                 
                 if response.status_code == 200:
                     data = response.json()
+                    vinted_antiblock.total_requests += 1
+                    vinted_antiblock.success_count += 1
                     break
                 elif response.status_code == 401:
                     logging.warning(f"🚫 HTTP 401 - Попытка переаутентификации")
@@ -476,6 +489,7 @@ def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
                 else:
                     logging.error(f"Error {response.status_code}: {topic_name}")
                     add_error(f"HTTP {response.status_code}", "vinted")
+                    vinted_antiblock.total_requests += 1
                     
                     if attempt < max_retries - 1:
                         time.sleep(random.uniform(2, 5))
@@ -485,6 +499,7 @@ def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
                         
             except Exception as e:
                 logging.error(f"❌ Ошибка запроса: {e}")
+                vinted_antiblock.total_requests += 1
                 if attempt < max_retries - 1:
                     time.sleep(random.uniform(2, 5))
                     continue
@@ -545,24 +560,37 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         mode_interval = "15-20s priority, 30-45s normal"
     mode_info = f"\n{mode_emoji} Mode: {scan_mode} ({mode_interval})"
     
-    anti_info = f"\n🛡️ Vinted requests: {vinted_antiblock.request_count}"
-    anti_info += f"\n📱 Telegram messages: {telegram_antiblock.message_count}"
+    anti_info = f"\n📱 Telegram messages: {telegram_antiblock.message_count}"
+    
+    # Получаем статистику базовой системы
+    basic_stats = vinted_antiblock.get_stats()
     
     # Информация о двухуровневой системе
     if ADVANCED_SYSTEM_AVAILABLE:
         logging.info(f"📊 СТАТУС КОМАНДА: ID системы: {id(advanced_system)}")
         stats = advanced_system.get_stats()
         logging.info(f"📊 СТАТУС КОМАНДА: Получена статистика: {stats}")
+        
+        # Общая успешность (базовая + продвинутая)
+        total_requests = basic_stats['total_requests'] + stats['http_requests']
+        total_success = basic_stats['success_count'] + stats['http_success']
+        overall_success_rate = (total_success / total_requests * 100) if total_requests > 0 else 0
+        
         anti_info += f"\n🚀 Продвинутая система:"
-        anti_info += f"\n   📊 HTTP: {stats['http_success']}/{stats['http_requests']}"
-        anti_info += f"\n   📈 Успешность: {stats['success_rate']:.1f}%"
+        anti_info += f"\n   📊 HTTP (без прокси): {stats.get('no_proxy_success', 0)}/{stats.get('no_proxy_requests', 0)}"
+        anti_info += f"\n   📊 HTTP (с прокси): {stats.get('proxy_success', 0)}/{stats.get('proxy_requests', 0)}"
         anti_info += f"\n   📡 Прокси: {stats['proxies_count']} активных"
         anti_info += f"\n   ⚠️ Ошибок подряд: {advanced_system_errors}/{max_system_errors}"
         anti_info += f"\n   🔄 Режим: {system_mode}"
-    else:
-        anti_info += f"\n🚀 Продвинутая система: ❌ Недоступна"
         
-    anti_info += f"\n🔥 Priority: {', '.join(PRIORITY_TOPICS)}"
+        anti_info += f"\n🛡️ Базовая система:"
+        anti_info += f"\n   📊 HTTP: {basic_stats['success_count']}/{basic_stats['total_requests']}"
+        
+        anti_info += f"\n📈 Общая успешность: {overall_success_rate:.1f}%"
+    else:
+        anti_info += f"\n🛡️ Базовая система:"
+        anti_info += f"\n   📊 HTTP: {basic_stats['success_count']}/{basic_stats['total_requests']}"
+        anti_info += f"\n📈 Общая успешность: {basic_stats['success_rate']:.1f}%"
     
     # Formatted error info
     error_info = ""
