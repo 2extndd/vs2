@@ -141,7 +141,8 @@ PRIORITY_TOPICS = ["bags", "bags 2"]  # Сканируются чаще
 - `/proxy` - статус продвинутой системы
 - `/traffic` - мониторинг экономии трафика
 - `/topics` - проверка доступности топиков
-- `/threadid` - актуальные thread_id топиков
+- `/threadid` - получение thread_id из Telegram
+- `/detect` - автоматическое определение thread_id топика
 - `/recovery [action]` - управление самовосстановлением
 - `/redeploy` - автоматический redeploy при критических ошибках
 

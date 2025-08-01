@@ -1288,6 +1288,45 @@ async def threadid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await telegram_antiblock.safe_send_message(update.effective_chat.id, f"❌ Ошибка: {str(e)}")
 
+async def detect_threadid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда для автоматического определения thread_id топика"""
+    try:
+        message = "🔍 АВТОМАТИЧЕСКОЕ ОПРЕДЕЛЕНИЕ THREAD_ID:\n\n"
+        
+        # Получаем thread_id текущего топика
+        current_thread_id = update.message.message_thread_id if update.message else None
+        
+        if current_thread_id:
+            message += f"📌 Текущий топик: {current_thread_id}\n"
+            message += f"✅ Команда отправлена в топик\n"
+            
+            # Проверяем, есть ли этот thread_id в конфигурации
+            found_topics = []
+            for topic_name, topic_data in Config.topics.items():
+                if topic_data.get("thread_id") == current_thread_id:
+                    found_topics.append(topic_name)
+            
+            if found_topics:
+                message += f"📋 Найденные топики в конфигурации:\n"
+                for topic in found_topics:
+                    message += f"  • {topic}\n"
+            else:
+                message += f"⚠️ Этот thread_id НЕ найден в конфигурации\n"
+                message += f"💡 Добавьте его в Config.py для автоматической отправки\n"
+        else:
+            message += f"📌 Основной чат (без thread_id)\n"
+            message += f"⚠️ Сообщения будут отправляться в основной чат\n"
+        
+        message += f"\n💡 ИНФОРМАЦИЯ:\n"
+        message += f"• Thread ID определяет, куда отправляются товары\n"
+        message += f"• Если ID в конфигурации → товары в топик\n"
+        message += f"• Если ID НЕ в конфигурации → товары в основной чат\n"
+        
+        await telegram_antiblock.safe_send_message(update.effective_chat.id, message)
+        
+    except Exception as e:
+        await telegram_antiblock.safe_send_message(update.effective_chat.id, f"❌ Ошибка: {str(e)}")
+
 async def setup_bot():
     application = Application.builder().token(Config.telegram_bot_token).build()
     
@@ -1303,9 +1342,10 @@ async def setup_bot():
     application.add_handler(CommandHandler("redeploy", redeploy_command))
     application.add_handler(CommandHandler("topics", topics_command))
     
-    # Дополнительные команды (2)
+    # Дополнительные команды (3)
     application.add_handler(CommandHandler("proxy", proxy_command))
     application.add_handler(CommandHandler("threadid", threadid_command))
+    application.add_handler(CommandHandler("detect", detect_threadid_command))
     
     return application
 
