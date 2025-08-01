@@ -1268,17 +1268,25 @@ async def topics_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await telegram_antiblock.safe_send_message(update.effective_chat.id, message)
 
 async def threadid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Команда для проверки thread_id топиков"""
-    message = "🔍 THREAD_ID ТОПИКОВ:\n\n"
-    
-    for topic_name, topic_data in Config.topics.items():
-        thread_id = topic_data.get("thread_id")
-        if thread_id:
-            message += f"📌 {topic_name}: {thread_id}\n"
+    """Команда для получения thread_id топика из Telegram"""
+    try:
+        # Получаем thread_id из сообщения
+        if update.message and update.message.reply_to_message:
+            # Если это ответ на сообщение в топике
+            thread_id = update.message.reply_to_message.message_thread_id
+            if thread_id:
+                await telegram_antiblock.safe_send_message(update.effective_chat.id, f"📌 Thread ID: {thread_id}")
+            else:
+                await telegram_antiblock.safe_send_message(update.effective_chat.id, "📌 Thread ID: НЕТ (основной чат)")
         else:
-            message += f"📌 {topic_name}: НЕТ (main chat)\n"
-    
-    await telegram_antiblock.safe_send_message(update.effective_chat.id, message)
+            # Если команда отправлена в топике, получаем thread_id текущего топика
+            thread_id = update.message.message_thread_id if update.message else None
+            if thread_id:
+                await telegram_antiblock.safe_send_message(update.effective_chat.id, f"📌 Thread ID: {thread_id}")
+            else:
+                await telegram_antiblock.safe_send_message(update.effective_chat.id, "📌 Thread ID: НЕТ (основной чат)")
+    except Exception as e:
+        await telegram_antiblock.safe_send_message(update.effective_chat.id, f"❌ Ошибка: {str(e)}")
 
 async def setup_bot():
     application = Application.builder().token(Config.telegram_bot_token).build()
