@@ -77,6 +77,12 @@ class AdvancedAntiBan:
         self.mode_switch_count = 0
         self.max_mode_switches = 10  # Максимум переключений в час
         
+        # НОВАЯ СИСТЕМА ПРОВЕРКИ БЕЗ ПРОКСИ
+        self.last_proxy_switch_time = time.time()
+        self.proxy_switch_interval = 600  # 10 минут - проверяем работу без прокси каждые 10 минут
+        self.no_proxy_test_attempts = 0
+        self.max_no_proxy_test_attempts = 3  # Максимум 3 попытки проверки без прокси
+        
         # Кластеризация антибот-параметров
         self.client_profiles = self._generate_client_profiles()
         self.current_profile = None
@@ -118,6 +124,7 @@ class AdvancedAntiBan:
                 self._periodic_proxy_health_check()
                 self._attempt_proxy_recovery()
                 self._cleanup_proxy_lists()
+                self._check_no_proxy_workability()  # НОВАЯ ПРОВЕРКА РАБОТЫ БЕЗ ПРОКСИ
             except Exception as e:
                 logging.error(f"❌ Ошибка в фоновой задаче: {e}")
                 
@@ -221,6 +228,65 @@ class AdvancedAntiBan:
         # Ограничиваем размер whitelist
         if len(self.proxy_whitelist) > 10:
             self.proxy_whitelist = self.proxy_whitelist[-10:]
+    
+    def _check_no_proxy_workability(self):
+        """Проверка возможности работы без прокси"""
+        current_time = time.time()
+        
+        # Проверяем каждые 10 минут, если используем прокси
+        if (current_time - self.last_proxy_switch_time > self.proxy_switch_interval and 
+            self.proxy_mode == "enabled" and 
+            self.no_proxy_test_attempts < self.max_no_proxy_test_attempts):
+            
+            self.last_proxy_switch_time = current_time
+            self.no_proxy_test_attempts += 1
+            
+            logging.info(f"🔍 ПРОВЕРКА РАБОТЫ БЕЗ ПРОКСИ (попытка {self.no_proxy_test_attempts}/{self.max_no_proxy_test_attempts})")
+            
+            # Анализируем текущую статистику
+            total_errors = self.errors_403 + self.errors_429 + self.errors_521
+            success_rate = (self.http_success / self.http_requests * 100) if self.http_requests > 0 else 0
+            
+            # Если статистика хорошая - пробуем без прокси
+            if (success_rate > 80 and 
+                total_errors < 2 and 
+                self.consecutive_errors < 2):
+                
+                logging.info(f"💰 ПРОБУЕМ РАБОТУ БЕЗ ПРОКСИ: успешность={success_rate:.1f}%, ошибок={total_errors}")
+                
+                # Временно переключаемся в режим без прокси для тестирования
+                original_mode = self.proxy_mode
+                self.proxy_mode = "disabled"
+                
+                # Сбрасываем счетчики для чистого теста
+                test_requests = self.http_requests
+                test_success = self.http_success
+                test_errors = total_errors
+                
+                # Ждем немного для сбора статистики
+                # time.sleep(30)  # 30 секунд на тест (временно отключено для тестирования)
+                
+                # Анализируем результаты теста
+                new_requests = self.http_requests - test_requests
+                new_success = self.http_success - test_success
+                new_errors = (self.errors_403 + self.errors_429 + self.errors_521) - test_errors
+                
+                if new_requests > 0:
+                    test_success_rate = (new_success / new_requests * 100) if new_requests > 0 else 0
+                    
+                    if test_success_rate > 70 and new_errors < 2:
+                        logging.info(f"✅ ТЕСТ БЕЗ ПРОКСИ УСПЕШЕН: успешность={test_success_rate:.1f}%, ошибок={new_errors}")
+                        logging.info(f"💰 ПЕРЕКЛЮЧАЕМСЯ НА РЕЖИМ БЕЗ ПРОКСИ (экономия трафика)")
+                        self.no_proxy_test_attempts = 0  # Сбрасываем счетчик
+                        return  # Оставляем в режиме без прокси
+                    else:
+                        logging.warning(f"❌ ТЕСТ БЕЗ ПРОКСИ НЕУДАЧЕН: успешность={test_success_rate:.1f}%, ошибок={new_errors}")
+                
+                # Возвращаемся к прокси, если тест неудачен
+                self.proxy_mode = original_mode
+                logging.info(f"🔄 ВОЗВРАЩАЕМСЯ К ПРОКСИ (стабильность)")
+            else:
+                logging.info(f"⏳ ОТЛОЖЕНА ПРОВЕРКА БЕЗ ПРОКСИ: успешность={success_rate:.1f}%, ошибок={total_errors}")
             
     def _load_proxies(self):
         """Загрузка резидентских прокси"""
@@ -709,7 +775,11 @@ class AdvancedAntiBan:
             'proxy_requests': self.proxy_requests,
             'no_proxy_requests': self.no_proxy_requests,
             'proxy_success': self.proxy_success,
-            'no_proxy_success': self.no_proxy_success
+            'no_proxy_success': self.no_proxy_success,
+            # НОВАЯ СТАТИСТИКА ПРОВЕРКИ БЕЗ ПРОКСИ
+            'no_proxy_test_attempts': self.no_proxy_test_attempts,
+            'max_no_proxy_test_attempts': self.max_no_proxy_test_attempts,
+            'last_proxy_switch_time': self.last_proxy_switch_time
         }
         
         return stats
@@ -755,27 +825,31 @@ class AdvancedAntiBan:
     def _should_use_proxy(self):
         """Определяет, нужно ли использовать прокси с учетом экономии трафика"""
         if self.proxy_mode == "disabled":
+            logging.info(f"🔧 Прокси отключены (режим: disabled)")
             return False
         elif self.proxy_mode == "enabled":
+            logging.info(f"🔧 Прокси включены (режим: enabled)")
             return True
         else:  # auto mode
             # НОВАЯ ЛОГИКА ЭКОНОМИИ ТРАФИКА
             total_errors = self.errors_403 + self.errors_429 + self.errors_521
             success_rate = (self.http_success / self.http_requests * 100) if self.http_requests > 0 else 0
             
-            # Если система работает стабильно без прокси - отключаем прокси для экономии
-            if (success_rate > 80 and 
-                total_errors < 3 and 
-                self.consecutive_errors < 2):
-                logging.info(f"💰 ЭКОНОМИЯ ТРАФИКА: Отключаем прокси (успешность: {success_rate:.1f}%, ошибок: {total_errors})")
-                return False
+            logging.info(f"🔍 АНАЛИЗ ПРОКСИ: успешность={success_rate:.1f}%, ошибок={total_errors}, подряд={self.consecutive_errors}")
             
-            # Если есть проблемы - используем прокси
-            if total_errors >= self.proxy_failure_threshold:
-                logging.warning(f"🚫 Прокси отключены из-за {total_errors} ошибок")
-                return False
-                
-            return True
+            # ПО УМОЛЧАНИЮ: НЕ используем прокси (экономия трафика)
+            # Включаем прокси только при проблемах
+            
+            # Если есть проблемы - включаем прокси
+            if (total_errors >= 3 or 
+                self.consecutive_errors >= 3 or
+                success_rate < 70):
+                logging.warning(f"⚠️ ПРОБЛЕМЫ ОБНАРУЖЕНЫ: Включаем прокси (ошибок: {total_errors}, подряд: {self.consecutive_errors}, успешность: {success_rate:.1f}%)")
+                return True
+            
+            # Если система работает стабильно - НЕ используем прокси (экономия)
+            logging.info(f"💰 ЭКОНОМИЯ ТРАФИКА: Не используем прокси (успешность: {success_rate:.1f}%, ошибок: {total_errors})")
+            return False
 
 # Глобальный экземпляр (синглтон)
 _advanced_system_instance = None
