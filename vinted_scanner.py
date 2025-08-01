@@ -44,6 +44,10 @@ system_mode = "auto"  # auto, basic, advanced, proxy, noproxy
 # PRIORITY TOPICS - these scan more frequently
 PRIORITY_TOPICS = ["bags", "bags 2"]
 
+# ЗАЩИТА ОТ ДУБЛИРОВАНИЯ
+last_scan_time = {}  # Время последнего сканирования каждого топика
+min_scan_interval = 3  # Минимальный интервал между сканированиями одного топика (в секундах)
+
 # ПРОДВИНУТАЯ АНТИБАН СИСТЕМА
 try:
     from advanced_antiban import get_advanced_system
@@ -346,33 +350,42 @@ def send_telegram_message(item_title, item_price, item_url, item_image, item_siz
         
         message = f"<b>{item_title}</b>\n🏷️ {item_price}{size_text}{topic_info}\n🔗 {item_url}"
 
-        # Try send to topic
+        # Try send to topic if thread_id is provided
         if thread_id:
-            params = {
-                "chat_id": Config.telegram_chat_id,
-                "photo": item_image,
-                "caption": message,
-                "parse_mode": "HTML",
-                "message_thread_id": thread_id
-            }
-            
-            response = requests.post(
-                f"https://api.telegram.org/bot{Config.telegram_bot_token}/sendPhoto",
-                data=params, 
-                timeout=timeoutconnection
-            )
-            
-            if response.status_code == 200:
-                logging.info(f"✅ Sent to topic {thread_id}")
-                return True
-            else:
-                add_error(f"TG topic: {response.status_code}", "telegram")
+            try:
+                params = {
+                    "chat_id": Config.telegram_chat_id,
+                    "photo": item_image,
+                    "caption": message,
+                    "parse_mode": "HTML",
+                    "message_thread_id": thread_id
+                }
+                
+                response = requests.post(
+                    f"https://api.telegram.org/bot{Config.telegram_bot_token}/sendPhoto",
+                    data=params, 
+                    timeout=timeoutconnection
+                )
+                
+                if response.status_code == 200:
+                    logging.info(f"✅ Sent to topic {thread_id}")
+                    return True
+                elif response.status_code == 400:
+                    # Ошибка 400 может означать, что топики недоступны
+                    logging.warning(f"⚠️ Topics not available (400 error), sending to main chat")
+                    add_error(f"TG topic disabled: {response.status_code}", "telegram")
+                else:
+                    add_error(f"TG topic: {response.status_code}", "telegram")
+                    
+            except Exception as e:
+                logging.error(f"❌ Error sending to topic: {e}")
+                add_error(f"TG topic error: {str(e)[:30]}", "telegram")
         
         # Fallback to main chat
         params = {
             "chat_id": Config.telegram_chat_id,
             "photo": item_image,
-            "caption": message + "\n⚠️ Main chat",
+            "caption": message + (f"\n🏷️ Topic: {topic_info}" if topic_info else ""),
             "parse_mode": "HTML",
         }
         
@@ -490,7 +503,18 @@ def scanner_loop():
 
 def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
     """Сканирование одного топика с трехуровневой системой защиты"""
-    global current_system
+    global current_system, last_scan_time
+    
+    # Проверяем, не сканировали ли мы этот топик слишком недавно
+    current_time = time.time()
+    if topic_name in last_scan_time:
+        time_since_last_scan = current_time - last_scan_time[topic_name]
+        if time_since_last_scan < min_scan_interval:
+            logging.debug(f"⏰ Skipping {topic_name} - scanned {time_since_last_scan:.1f}s ago")
+            return
+    
+    # Обновляем время последнего сканирования
+    last_scan_time[topic_name] = current_time
     
     priority_mark = "🔥" if is_priority else ""
     logging.info(f"Scanning{priority_mark}: {topic_name}")
@@ -650,16 +674,22 @@ def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
                 continue
                 
             item_id = str(item["id"])
+            item_url = item["url"]
             
+            # Проверяем уникальность по ID и URL
             if item_id not in list_analyzed_items:
                 item_title = item["title"]
-                item_url = item["url"]
                 item_price = f'{item["price"]["amount"]} {item["price"]["currency_code"]}'
                 item_image = item["photo"]["full_size_url"]
                 item_size = item.get("size_title")
 
                 priority_log = "🔥 PRIORITY " if is_priority else ""
-                logging.info(f"🆕 {priority_log}NEW: {item_title} - {item_price}")
+                logging.info(f"🆕 {priority_log}NEW: {item_title} - {item_price} (ID: {item_id})")
+
+                # НЕМЕДЛЕННО сохраняем item_id, чтобы избежать дублирования
+                list_analyzed_items.append(item_id)
+                save_analyzed_item(item_id)
+                logging.info(f"💾 Saved item_id: {item_id}")
 
                 # Send notifications
                 if Config.smtp_username and Config.smtp_server:
@@ -671,10 +701,11 @@ def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
                 if Config.telegram_bot_token and Config.telegram_chat_id:
                     # АНТИБАН TELEGRAM ВКЛЮЧЕН В ФУНКЦИИ
                     success = send_telegram_message(item_title, item_price, item_url, item_image, item_size, thread_id)
-
-                # Save item
-                list_analyzed_items.append(item_id)
-                save_analyzed_item(item_id)
+                    
+                    if not success:
+                        logging.warning(f"⚠️ Failed to send to Telegram: {item_title}")
+            else:
+                logging.info(f"🔄 SKIP: Already processed - {item.get('title', 'Unknown')} (ID: {item_id})")
     else:
         logging.warning(f"No items: {topic_name}")
 
@@ -855,12 +886,6 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chat_id=update.effective_chat.id,
             text=f"❌ Ошибка сброса: {str(e)[:50]}"
         )
-
-def signal_handler(signum, frame):
-    global bot_running
-    logging.info("Shutdown signal received")
-    bot_running = False
-    sys.exit(0)
 
 async def proxy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /proxy - статус продвинутой системы"""
@@ -1197,10 +1222,51 @@ async def traffic_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await telegram_antiblock.safe_send_message(update.effective_chat.id, message)
 
+async def topics_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /topics - проверка доступности топиков"""
+    message = "🏷️ ПРОВЕРКА ДОСТУПНОСТИ ТОПИКОВ:\n\n"
+    
+    # Проверяем каждый топик
+    for topic_name, topic_data in Config.topics.items():
+        thread_id = topic_data.get('thread_id')
+        if thread_id:
+            try:
+                # Пробуем отправить тестовое сообщение в топик
+                test_params = {
+                    "chat_id": Config.telegram_chat_id,
+                    "text": f"🔍 Тест топика: {topic_name}",
+                    "message_thread_id": thread_id
+                }
+                
+                response = requests.post(
+                    f"https://api.telegram.org/bot{Config.telegram_bot_token}/sendMessage",
+                    data=test_params,
+                    timeout=10
+                )
+                
+                if response.status_code == 200:
+                    message += f"✅ {topic_name} (ID: {thread_id})\n"
+                elif response.status_code == 400:
+                    message += f"❌ {topic_name} (ID: {thread_id}) - недоступен\n"
+                else:
+                    message += f"⚠️ {topic_name} (ID: {thread_id}) - ошибка {response.status_code}\n"
+                    
+            except Exception as e:
+                message += f"❌ {topic_name} (ID: {thread_id}) - ошибка: {str(e)[:30]}\n"
+        else:
+            message += f"⚠️ {topic_name} - нет thread_id\n"
+    
+    message += f"\n💡 РЕКОМЕНДАЦИИ:\n"
+    message += f"• Если топики недоступны, вещи будут отправляться в основной чат\n"
+    message += f"• Добавьте участников в чат (нужно 200+) для активации топиков\n"
+    message += f"• Или используйте отдельные чаты для каждой категории\n"
+    
+    await telegram_antiblock.safe_send_message(update.effective_chat.id, message)
+
 async def setup_bot():
     application = Application.builder().token(Config.telegram_bot_token).build()
     
-    # Основные команды (9)
+    # Основные команды (10)
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("log", log_command))
     application.add_handler(CommandHandler("restart", restart_command))
@@ -1210,6 +1276,7 @@ async def setup_bot():
     application.add_handler(CommandHandler("traffic", traffic_command))
     application.add_handler(CommandHandler("system", system_command))
     application.add_handler(CommandHandler("redeploy", redeploy_command))
+    application.add_handler(CommandHandler("topics", topics_command))
     
     # Дополнительные команды (1)
     application.add_handler(CommandHandler("proxy", proxy_command))
