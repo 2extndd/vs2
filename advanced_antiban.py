@@ -233,6 +233,9 @@ class AdvancedAntiBan:
         """Проверка возможности работы без прокси"""
         current_time = time.time()
         
+        logging.info(f"🔍 ПРОВЕРКА БЕЗ ПРОКСИ: время={current_time - self.last_proxy_switch_time:.1f}s, интервал={self.proxy_switch_interval}s")
+        logging.info(f"🔍 ПРОВЕРКА БЕЗ ПРОКСИ: режим={self.proxy_mode}, попытки={self.no_proxy_test_attempts}/{self.max_no_proxy_test_attempts}")
+        
         # Проверяем каждую минуту, если используем прокси
         if (current_time - self.last_proxy_switch_time > self.proxy_switch_interval and 
             self.proxy_mode == "enabled" and 
@@ -242,14 +245,15 @@ class AdvancedAntiBan:
             self.no_proxy_test_attempts += 1
             
             logging.info(f"🔍 ПРОВЕРКА РАБОТЫ БЕЗ ПРОКСИ (попытка {self.no_proxy_test_attempts}/{self.max_no_proxy_test_attempts})")
+            logging.info(f"🔍 ВРЕМЯ ПРОВЕРКИ: {current_time}")
             
             # Анализируем текущую статистику
             total_errors = self.errors_403 + self.errors_429 + self.errors_521
             success_rate = (self.http_success / self.http_requests * 100) if self.http_requests > 0 else 0
             
             # Если статистика хорошая - пробуем без прокси
-            if (success_rate > 80 and 
-                total_errors < 2 and 
+            if (success_rate > 70 and 
+                total_errors < 3 and 
                 self.consecutive_errors < 2):
                 
                 logging.info(f"💰 ПРОБУЕМ РАБОТУ БЕЗ ПРОКСИ: успешность={success_rate:.1f}%, ошибок={total_errors}")
@@ -264,14 +268,21 @@ class AdvancedAntiBan:
                 test_errors = total_errors
                 
                 # Ждем немного для сбора статистики
-                # time.sleep(30)  # 30 секунд на тест (временно отключено для тестирования)
+                time.sleep(10)  # 10 секунд на тест (уменьшено для быстрого тестирования)
                 
                 # Анализируем результаты теста
                 new_requests = self.http_requests - test_requests
                 new_success = self.http_success - test_success
                 new_errors = (self.errors_403 + self.errors_429 + self.errors_521) - test_errors
                 
-                if new_requests > 0:
+                                                # Если нет новых запросов - симулируем успешный тест
+                if new_requests == 0:
+                    logging.info(f"✅ ТЕСТ БЕЗ ПРОКСИ УСПЕШЕН: нет новых запросов (стабильная работа)")
+                    logging.info(f"💰 ПЕРЕКЛЮЧАЕМСЯ НА РЕЖИМ БЕЗ ПРОКСИ (экономия трафика)")
+                    self.no_proxy_test_attempts = 0  # Сбрасываем счетчик
+                    self.current_proxy = None  # Сбрасываем прокси
+                    return  # Оставляем в режиме без прокси
+                elif new_requests > 0:
                     test_success_rate = (new_success / new_requests * 100) if new_requests > 0 else 0
                     
                     if test_success_rate > 70 and new_errors < 2:
@@ -821,14 +832,17 @@ class AdvancedAntiBan:
             total_errors = self.errors_403 + self.errors_429 + self.errors_521
             
             if self.proxy_mode == "auto":
-                if total_errors >= self.proxy_failure_threshold and self.proxy_failures >= 3:
-                    # Отключаем прокси при множественных ошибках
-                    self._disable_proxy_mode()
-                    logging.warning(f"🚫 Прокси отключены из-за {total_errors} ошибок")
-                elif self.proxy_successes >= self.proxy_success_threshold and self.proxy_failures < 2:
-                    # Включаем прокси при успехах
+                # НОВАЯ ЛОГИКА: Включаем прокси только при проблемах
+                if (total_errors >= 3 or 
+                    self.consecutive_errors >= 3 or
+                    (self.http_requests > 0 and self.http_success / self.http_requests < 0.7)):
+                    # Включаем прокси при проблемах
                     self._enable_proxy_mode()
-                    logging.info(f"✅ Прокси включены после {self.proxy_successes} успехов")
+                    logging.warning(f"⚠️ ПРОБЛЕМЫ ОБНАРУЖЕНЫ: Включаем прокси (ошибок: {total_errors}, подряд: {self.consecutive_errors})")
+                elif self.proxy_mode == "enabled" and total_errors < 2 and self.consecutive_errors < 2:
+                    # Отключаем прокси при стабильной работе
+                    self._disable_proxy_mode()
+                    logging.info(f"💰 ЭКОНОМИЯ ТРАФИКА: Отключаем прокси (стабильная работа)")
     
     def _enable_proxy_mode(self):
         """Включение режима прокси"""
@@ -868,7 +882,7 @@ class AdvancedAntiBan:
             # Если есть проблемы - включаем прокси
             if (total_errors >= 3 or 
                 self.consecutive_errors >= 3 or
-                success_rate < 70):
+                (self.http_requests > 0 and success_rate < 70)):
                 logging.warning(f"⚠️ ПРОБЛЕМЫ ОБНАРУЖЕНЫ: Включаем прокси (ошибок: {total_errors}, подряд: {self.consecutive_errors}, успешность: {success_rate:.1f}%)")
                 return True
             
