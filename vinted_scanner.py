@@ -1283,6 +1283,11 @@ async def setup_bot():
     
     return application
 
+def signal_handler(signum, frame):
+    global bot_running
+    logging.info("🛑 Получен сигнал завершения, останавливаю систему...")
+    bot_running = False
+
 def main():
     global bot_running, scanner_thread
     
