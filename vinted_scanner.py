@@ -519,7 +519,13 @@ def scanner_loop():
         except Exception as e:
             add_error(f"Scanner: {str(e)[:30]}")
             logging.error(f"Error: {e}")
-            if bot_running:
+            
+            # Обработка Telegram конфликтов
+            if "Conflict: terminated by other getUpdates request" in str(e):
+                logging.warning("⚠️ Обнаружен конфликт Telegram ботов")
+                logging.info("🔄 Ожидание 30 секунд для разрешения конфликта...")
+                time.sleep(30)
+            elif bot_running:
                 time.sleep(20)
 
 def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
@@ -1437,6 +1443,39 @@ async def setup_bot():
     application.add_handler(CommandHandler("detect", detect_threadid_command))
     
     return application
+
+def auto_recovery_system():
+    """Автоматическая система самовосстановления"""
+    global current_system, basic_system_errors, advanced_no_proxy_errors, advanced_proxy_errors, last_switch_time
+    
+    # Проверяем критические условия для самовосстановления
+    if ADVANCED_SYSTEM_AVAILABLE:
+        # Если много ошибок подряд, сбрасываем счетчики
+        if advanced_system.consecutive_errors > 50:
+            logging.warning(f"🔄 АВТОМАТИЧЕСКОЕ САМОВОССТАНОВЛЕНИЕ: Сброс ошибок (было: {advanced_system.consecutive_errors})")
+            advanced_system.consecutive_errors = 0
+            advanced_system.errors_403 = 0
+            advanced_system.errors_429 = 0
+            advanced_system.errors_521 = 0
+        
+        # Если много заблокированных прокси, очищаем blacklist
+        if len(advanced_system.proxy_blacklist) > len(advanced_system.proxy_whitelist) * 2:
+            logging.warning(f"🔄 АВТОМАТИЧЕСКОЕ САМОВОССТАНОВЛЕНИЕ: Очистка blacklist прокси")
+            advanced_system.proxy_blacklist.clear()
+        
+        # Если система застряла в прокси с ошибками, переключаемся на без прокси
+        if current_system == "advanced_proxy" and advanced_proxy_errors > 10:
+            logging.warning(f"🔄 АВТОМАТИЧЕСКОЕ САМОВОССТАНОВЛЕНИЕ: Переключение с прокси на без прокси")
+            current_system = "advanced_no_proxy"
+            advanced_proxy_errors = 0
+            advanced_system.proxy_mode = "disabled"
+            advanced_system.current_proxy = None
+        
+        # Если система в basic режиме слишком долго, переключаемся на продвинутую
+        if current_system == "basic" and time.time() - last_switch_time > 600:  # 10 минут
+            logging.warning(f"🔄 АВТОМАТИЧЕСКОЕ САМОВОССТАНОВЛЕНИЕ: Переключение с basic на продвинутую")
+            current_system = "advanced_no_proxy"
+            last_switch_time = time.time()
 
 def signal_handler(signum, frame):
     global bot_running
