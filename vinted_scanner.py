@@ -53,11 +53,91 @@ except ImportError as e:
     ADVANCED_SYSTEM_AVAILABLE = False
     logging.warning(f"⚠️ Продвинутая система недоступна: {e}")
 
-# Состояние систем
-system_mode = "auto"  # auto, basic, advanced
-advanced_system_errors = 0
+# ТРЕХУРОВНЕВАЯ СИСТЕМА ЗАЩИТЫ
+current_system = "basic"  # basic, advanced_no_proxy, advanced_proxy
 basic_system_errors = 0
-max_system_errors = 5
+advanced_no_proxy_errors = 0
+advanced_proxy_errors = 0
+max_errors_before_switch = 3
+last_switch_time = time.time()
+switch_interval = 60  # 60 секунд между попытками переключения
+
+# Счетчики для статистики
+basic_requests = 0
+basic_success = 0
+advanced_no_proxy_requests = 0
+advanced_no_proxy_success = 0
+advanced_proxy_requests = 0
+advanced_proxy_success = 0
+
+def should_switch_system():
+    """Логика переключения трехуровневой системы"""
+    global current_system, basic_system_errors, advanced_no_proxy_errors, advanced_proxy_errors
+    global last_switch_time, switch_interval
+    
+    current_time = time.time()
+    
+    # Логика переключения с базовой на продвинутую без прокси
+    if current_system == "basic" and basic_system_errors >= max_errors_before_switch:
+        logging.info(f"🔄 ПЕРЕКЛЮЧЕНИЕ: basic -> advanced_no_proxy (ошибок: {basic_system_errors})")
+        current_system = "advanced_no_proxy"
+        basic_system_errors = 0  # Сбрасываем счетчик ошибок
+        return True
+        
+    # Логика переключения с продвинутой без прокси на продвинутую с прокси
+    elif current_system == "advanced_no_proxy" and advanced_no_proxy_errors >= max_errors_before_switch:
+        logging.info(f"🔄 ПЕРЕКЛЮЧЕНИЕ: advanced_no_proxy -> advanced_proxy (ошибок: {advanced_no_proxy_errors})")
+        current_system = "advanced_proxy"
+        advanced_no_proxy_errors = 0
+        return True
+        
+    # Логика переключения обратно на продвинутую без прокси (экономия трафика)
+    elif current_system == "advanced_proxy":
+        # Проверяем каждую минуту
+        if current_time - last_switch_time >= switch_interval:
+            last_switch_time = current_time
+            
+            # Если продвинутая без прокси работает хорошо, переключаемся обратно
+            if advanced_no_proxy_requests > 0:
+                success_rate = advanced_no_proxy_success / advanced_no_proxy_requests
+                if success_rate >= 0.7 and advanced_no_proxy_errors < 2:
+                    logging.info(f"🔄 ПЕРЕКЛЮЧЕНИЕ: advanced_proxy -> advanced_no_proxy (успешность: {success_rate:.1%})")
+                    current_system = "advanced_no_proxy"
+                    return True
+                    
+    return False
+
+def update_system_stats(system_name, success=True):
+    """Обновление статистики системы"""
+    global basic_requests, basic_success, advanced_no_proxy_requests, advanced_no_proxy_success
+    global advanced_proxy_requests, advanced_proxy_success, basic_system_errors, advanced_no_proxy_errors, advanced_proxy_errors
+    
+    if system_name == "basic":
+        basic_requests += 1
+        if success:
+            basic_success += 1
+            logging.info(f"✅ БАЗОВАЯ СИСТЕМА: Успешный запрос ({basic_success}/{basic_requests})")
+        else:
+            basic_system_errors += 1
+            logging.warning(f"❌ БАЗОВАЯ СИСТЕМА: Ошибка ({basic_system_errors})")
+            
+    elif system_name == "advanced_no_proxy":
+        advanced_no_proxy_requests += 1
+        if success:
+            advanced_no_proxy_success += 1
+            logging.info(f"✅ ПРОДВИНУТАЯ БЕЗ ПРОКСИ: Успешный запрос ({advanced_no_proxy_success}/{advanced_no_proxy_requests})")
+        else:
+            advanced_no_proxy_errors += 1
+            logging.warning(f"❌ ПРОДВИНУТАЯ БЕЗ ПРОКСИ: Ошибка ({advanced_no_proxy_errors})")
+            
+    elif system_name == "advanced_proxy":
+        advanced_proxy_requests += 1
+        if success:
+            advanced_proxy_success += 1
+            logging.info(f"✅ ПРОДВИНУТАЯ С ПРОКСИ: Успешный запрос ({advanced_proxy_success}/{advanced_proxy_requests})")
+        else:
+            advanced_proxy_errors += 1
+            logging.warning(f"❌ ПРОДВИНУТАЯ С ПРОКСИ: Ошибка ({advanced_proxy_errors})")
 
 # ANTI-BLOCKING SYSTEM FOR VINTED
 class VintedAntiBlock:
@@ -403,53 +483,49 @@ def scanner_loop():
                 time.sleep(20)
 
 def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
-    """Сканирование одного топика"""
+    """Сканирование одного топика с трехуровневой системой защиты"""
+    global current_system
+    
     priority_mark = "🔥" if is_priority else ""
     logging.info(f"Scanning{priority_mark}: {topic_name}")
     
-    params = topic_data["query"]
-    exclude_catalog_ids = topic_data.get("exclude_catalog_ids", "")
-    thread_id = topic_data.get("thread_id")
+    # Поддержка старой и новой структуры конфигурации
+    if "query" in topic_data:
+        # Старая структура
+        params = topic_data["query"]
+        exclude_catalog_ids = topic_data.get("exclude_catalog_ids", "")
+        thread_id = topic_data.get("thread_id")
+    else:
+        # Новая структура
+        params = {
+            'page': '1',
+            'per_page': '2',
+            'search_text': '',
+            'catalog_ids': topic_data.get('catalog_ids', ''),
+            'brand_ids': topic_data.get('brand_ids', ''),
+            'order': 'newest_first',
+            'price_to': str(Config.price_limit),
+        }
+        exclude_catalog_ids = ""
+        thread_id = None
     
-    # ДВУХУРОВНЕВАЯ СИСТЕМА
+    # Проверяем необходимость переключения системы
+    if should_switch_system():
+        logging.info(f"🔄 СИСТЕМА ПЕРЕКЛЮЧЕНА НА: {current_system.upper()}")
+    
     data = None
-    used_system = "basic"
+    used_system = current_system
     
-    # Попытка через продвинутую систему (если доступна)
-    if ADVANCED_SYSTEM_AVAILABLE and system_mode in ["auto", "advanced", "proxy", "noproxy"]:
-        try:
-            logging.info(f"🚀 [{topic_name}] Запрос через ПРОДВИНУТУЮ систему")
-            logging.info(f"🔧 Cookies: {cookies}")
-            logging.info(f"🔧 Params: {params}")
-            
-            # HTTP запрос через продвинутую систему
-            url = f"{Config.vinted_url}/api/v2/catalog/items"
-            logging.info(f"🌐 URL: {url}")
-            
-            data = advanced_system.make_http_request(url, params, cookies)
-            
-            if data:
-                logging.info(f"✅ ПРОДВИНУТАЯ СИСТЕМА: Found {len(data.get('items', []))} items for {topic_name}")
-                used_system = "advanced"
-            else:
-                logging.warning(f"⚠️ Продвинутая система не вернула данные для {topic_name}")
-                logging.info(f"🛡️ [{topic_name}] Запрос через БАЗОВУЮ систему")
-                
-        except Exception as e:
-            logging.error(f"❌ Ошибка продвинутой системы: {e}")
-    
-    # Fallback на базовую систему (если продвинутая не сработала)
-    if not data:
+    # ТРЕХУРОВНЕВАЯ СИСТЕМА ЗАЩИТЫ
+    if current_system == "basic":
+        # БАЗОВАЯ СИСТЕМА
         logging.info(f"🛡️ [{topic_name}] Запрос через БАЗОВУЮ систему")
         
-        # Get new headers for each topic
         topic_headers = vinted_antiblock.get_headers()
-        
-        # УЛУЧШЕННАЯ ОБРАБОТКА ОШИБОК
         max_retries = 3
+        
         for attempt in range(max_retries):
             try:
-                # Request with anti-blocking
                 response = requests.get(
                     f"{Config.vinted_url}/api/v2/catalog/items", 
                     params=params, 
@@ -458,7 +534,6 @@ def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
                     timeout=timeoutconnection
                 )
 
-                # Handle errors
                 if vinted_antiblock.handle_errors(response):
                     if attempt < max_retries - 1:
                         logging.info(f"🔄 Повторная попытка {attempt + 1}/{max_retries}")
@@ -466,30 +541,17 @@ def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
                         continue
                     else:
                         logging.error(f"❌ Все попытки исчерпаны для {topic_name}")
+                        update_system_stats("basic", success=False)
                         return
                 
                 if response.status_code == 200:
                     data = response.json()
-                    vinted_antiblock.total_requests += 1
-                    vinted_antiblock.success_count += 1
+                    update_system_stats("basic", success=True)
                     break
-                elif response.status_code == 401:
-                    logging.warning(f"🚫 HTTP 401 - Попытка переаутентификации")
-                    # Попытка получить новые cookies
-                    try:
-                        session.post(Config.vinted_url, headers=topic_headers, timeout=timeoutconnection)
-                        cookies = session.cookies.get_dict()
-                        logging.info(f"🔄 Новые cookies получены: {cookies}")
-                    except Exception as e:
-                        logging.error(f"❌ Ошибка получения новых cookies: {e}")
-                    
-                    if attempt < max_retries - 1:
-                        time.sleep(random.uniform(3, 8))
-                        continue
                 else:
                     logging.error(f"Error {response.status_code}: {topic_name}")
                     add_error(f"HTTP {response.status_code}", "vinted")
-                    vinted_antiblock.total_requests += 1
+                    update_system_stats("basic", success=False)
                     
                     if attempt < max_retries - 1:
                         time.sleep(random.uniform(2, 5))
@@ -499,7 +561,7 @@ def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
                         
             except Exception as e:
                 logging.error(f"❌ Ошибка запроса: {e}")
-                vinted_antiblock.total_requests += 1
+                update_system_stats("basic", success=False)
                 if attempt < max_retries - 1:
                     time.sleep(random.uniform(2, 5))
                     continue
@@ -507,7 +569,70 @@ def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
                     add_error(f"Request error: {str(e)[:30]}", "vinted")
                     return
     
+    elif current_system == "advanced_no_proxy":
+        # ПРОДВИНУТАЯ СИСТЕМА БЕЗ ПРОКСИ
+        if ADVANCED_SYSTEM_AVAILABLE:
+            try:
+                logging.info(f"🚀 [{topic_name}] Запрос через ПРОДВИНУТУЮ систему БЕЗ ПРОКСИ")
+                
+                # Настраиваем продвинутую систему на работу без прокси
+                advanced_system.proxy_mode = "disabled"
+                advanced_system.current_proxy = None
+                
+                url = f"{Config.vinted_url}/api/v2/catalog/items"
+                data = advanced_system.make_http_request(url, params, cookies)
+                
+                if data and "items" in data:
+                    logging.info(f"✅ ПРОДВИНУТАЯ БЕЗ ПРОКСИ: Found {len(data.get('items', []))} items for {topic_name}")
+                    update_system_stats("advanced_no_proxy", success=True)
+                else:
+                    logging.warning(f"⚠️ Продвинутая система без прокси не вернула данные для {topic_name}")
+                    update_system_stats("advanced_no_proxy", success=False)
+                    
+            except Exception as e:
+                logging.error(f"❌ Ошибка продвинутой системы без прокси: {e}")
+                update_system_stats("advanced_no_proxy", success=False)
+        
+        # Fallback на базовую систему
+        if not data:
+            logging.info(f"🛡️ [{topic_name}] Fallback на БАЗОВУЮ систему")
+            current_system = "basic"
+            return scan_topic(topic_name, topic_data, cookies, session, is_priority)
+    
+    elif current_system == "advanced_proxy":
+        # ПРОДВИНУТАЯ СИСТЕМА С ПРОКСИ
+        if ADVANCED_SYSTEM_AVAILABLE:
+            try:
+                logging.info(f"🚀 [{topic_name}] Запрос через ПРОДВИНУТУЮ систему С ПРОКСИ")
+                
+                # Настраиваем продвинутую систему на работу с прокси
+                advanced_system.proxy_mode = "enabled"
+                if not advanced_system.current_proxy:
+                    advanced_system._rotate_proxy()
+                
+                url = f"{Config.vinted_url}/api/v2/catalog/items"
+                data = advanced_system.make_http_request(url, params, cookies)
+                
+                if data and "items" in data:
+                    logging.info(f"✅ ПРОДВИНУТАЯ С ПРОКСИ: Found {len(data.get('items', []))} items for {topic_name}")
+                    update_system_stats("advanced_proxy", success=True)
+                else:
+                    logging.warning(f"⚠️ Продвинутая система с прокси не вернула данные для {topic_name}")
+                    update_system_stats("advanced_proxy", success=False)
+                    
+            except Exception as e:
+                logging.error(f"❌ Ошибка продвинутой системы с прокси: {e}")
+                update_system_stats("advanced_proxy", success=False)
+        
+        # Fallback на продвинутую без прокси
+        if not data:
+            logging.info(f"🛡️ [{topic_name}] Fallback на ПРОДВИНУТУЮ БЕЗ ПРОКСИ")
+            current_system = "advanced_no_proxy"
+            return scan_topic(topic_name, topic_data, cookies, session, is_priority)
+    
+    # Обработка полученных данных
     if data and "items" in data:
+        logging.info(f"📊 ИСПОЛЬЗУЕТСЯ СИСТЕМА: {used_system.upper()}")
         logging.info(f"Система [{used_system}]: Found {len(data['items'])} items")
         
         for item in data["items"]:
@@ -562,51 +687,21 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     anti_info = f"\n📱 Telegram messages: {telegram_antiblock.message_count}"
     
-    # Получаем статистику базовой системы
-    basic_stats = vinted_antiblock.get_stats()
+    # ТРЕХУРОВНЕВАЯ СИСТЕМА СТАТУСА
+    anti_info += f"\n🔄 ТЕКУЩАЯ СИСТЕМА: {current_system.upper()}"
     
-    # Информация о двухуровневой системе
-    if ADVANCED_SYSTEM_AVAILABLE:
-        logging.info(f"📊 СТАТУС КОМАНДА: ID системы: {id(advanced_system)}")
-        stats = advanced_system.get_stats()
-        logging.info(f"📊 СТАТУС КОМАНДА: Получена статистика: {stats}")
-        
-        # Общая успешность (базовая + продвинутая)
-        total_requests = basic_stats['total_requests'] + stats['http_requests']
-        total_success = basic_stats['success_count'] + stats['http_success']
-        overall_success_rate = (total_success / total_requests * 100) if total_requests > 0 else 0
-        
-        anti_info += f"\n🚀 Продвинутая система:"
-        
-        # Защита от неправильных значений счетчиков
-        no_proxy_success = stats.get('no_proxy_success', 0)
-        no_proxy_requests = stats.get('no_proxy_requests', 0)
-        proxy_success = stats.get('proxy_success', 0)
-        proxy_requests = stats.get('proxy_requests', 0)
-        
-        # Исправляем неправильные значения
-        if proxy_success > proxy_requests and proxy_requests > 0:
-            proxy_success = proxy_requests
-            logging.warning(f"🔧 ИСПРАВЛЕНИЕ СЧЕТЧИКОВ: proxy_success ({proxy_success}) > proxy_requests ({proxy_requests})")
-        
-        if no_proxy_success > no_proxy_requests and no_proxy_requests > 0:
-            no_proxy_success = no_proxy_requests
-            logging.warning(f"🔧 ИСПРАВЛЕНИЕ СЧЕТЧИКОВ: no_proxy_success ({no_proxy_success}) > no_proxy_requests ({no_proxy_requests})")
-        
-        anti_info += f"\n   📊 HTTP (без прокси): {no_proxy_success}/{no_proxy_requests}"
-        anti_info += f"\n   📊 HTTP (с прокси): {proxy_success}/{proxy_requests}"
-        anti_info += f"\n   📡 Прокси: {stats['proxies_count']} активных"
-        anti_info += f"\n   ⚠️ Ошибок подряд: {advanced_system_errors}/{max_system_errors}"
-        anti_info += f"\n   🔄 Режим: {system_mode}"
-        
-        anti_info += f"\n🛡️ Базовая система:"
-        anti_info += f"\n   📊 HTTP: {basic_stats['success_count']}/{basic_stats['total_requests']}"
-        
-        anti_info += f"\n📈 Общая успешность: {overall_success_rate:.1f}%"
-    else:
-        anti_info += f"\n🛡️ Базовая система:"
-        anti_info += f"\n   📊 HTTP: {basic_stats['success_count']}/{basic_stats['total_requests']}"
-        anti_info += f"\n📈 Общая успешность: {basic_stats['success_rate']:.1f}%"
+    # Статистика всех трех систем
+    anti_info += f"\n📊 СТАТИСТИКА СИСТЕМ:"
+    anti_info += f"\n🔹 Базовая система: {basic_success}/{basic_requests}"
+    anti_info += f"\n🔹 Продвинутая без прокси: {advanced_no_proxy_success}/{advanced_no_proxy_requests}"
+    anti_info += f"\n🔹 Продвинутая с прокси: {advanced_proxy_success}/{advanced_proxy_requests}"
+    
+    # Общая успешность
+    total_requests = basic_requests + advanced_no_proxy_requests + advanced_proxy_requests
+    total_success = basic_success + advanced_no_proxy_success + advanced_proxy_success
+    overall_success_rate = (total_success / total_requests * 100) if total_requests > 0 else 0
+    
+    anti_info += f"\n📈 Общая успешность: {overall_success_rate:.1f}%"
     
     # Formatted error info
     error_info = ""
