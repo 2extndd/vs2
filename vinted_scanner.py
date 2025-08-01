@@ -100,7 +100,15 @@ def should_switch_system():
         
     # Логика переключения обратно на продвинутую без прокси (экономия трафика)
     elif current_system == "advanced_proxy":
-        # Проверяем каждую минуту
+        # НОВАЯ ЛОГИКА: Если прокси дают много ошибок, переключаемся обратно на без прокси (немедленно)
+        if advanced_proxy_errors >= max_errors_before_switch:
+            logging.info(f"🔄 ПЕРЕКЛЮЧЕНИЕ: advanced_proxy -> advanced_no_proxy (много ошибок прокси: {advanced_proxy_errors})")
+            current_system = "advanced_no_proxy"
+            advanced_proxy_errors = 0  # Сбрасываем счетчик ошибок прокси
+            last_switch_time = current_time
+            return True
+        
+        # Проверяем каждую минуту для других условий
         if current_time - last_switch_time >= switch_interval:
             last_switch_time = current_time
             
