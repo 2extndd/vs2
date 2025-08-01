@@ -226,6 +226,9 @@ class TelegramAntiBlock:
     def __init__(self):
         self.message_count = 0
         self.last_message_time = 0
+        self.consecutive_errors = 0
+        self.last_error_time = 0
+        self.error_backoff = 1  # Начальная задержка при ошибках
         
     def safe_delay(self):
         """СТРОГО 1 СЕКУНДА между сообщениями + защита от флуда"""
@@ -246,33 +249,89 @@ class TelegramAntiBlock:
         
         self.last_message_time = time.time()
 
+    def handle_telegram_error(self, error_type):
+        """Обработка ошибок Telegram с экспоненциальной задержкой"""
+        current_time = time.time()
+        
+        if error_type in ["429", "conflict", "getUpdates"]:
+            self.consecutive_errors += 1
+            
+            # Экспоненциальная задержка: 2^errors секунд (максимум 60 секунд)
+            backoff_time = min(2 ** self.consecutive_errors, 60)
+            
+            logging.warning(f"⚠️ TG Error {error_type}: {backoff_time}s backoff (errors: {self.consecutive_errors})")
+            time.sleep(backoff_time)
+            
+            # Если много ошибок подряд, увеличиваем базовую задержку
+            if self.consecutive_errors >= 5:
+                self.error_backoff = min(self.error_backoff * 2, 10)
+                logging.warning(f"🔄 TG: Увеличена базовая задержка до {self.error_backoff}s")
+        else:
+            # Сброс счетчика при успешных запросах
+            if self.consecutive_errors > 0:
+                logging.info(f"✅ TG: Сброс счетчика ошибок (было: {self.consecutive_errors})")
+                self.consecutive_errors = 0
+                self.error_backoff = 1
+
     async def safe_send_message(self, chat_id, message):
-        """Безопасная отправка сообщения с антибаном"""
-        try:
-            # Антибан пауза
-            self.safe_delay()
-            
-            # Отправка сообщения через Telegram API
-            response = requests.post(
-                f"https://api.telegram.org/bot{Config.telegram_bot_token}/sendMessage",
-                data={
-                    "chat_id": chat_id,
-                    "text": message,
-                    "parse_mode": "HTML"
-                },
-                timeout=timeoutconnection
-            )
-            
-            if response.status_code == 200:
-                logging.info(f"✅ Сообщение отправлено в {chat_id}")
-                return True
-            else:
-                add_error(f"TG send: {response.status_code}", "telegram")
-                return False
+        """Безопасная отправка сообщения с антибаном и самовосстановлением"""
+        max_retries = 3
+        
+        for attempt in range(max_retries):
+            try:
+                # Антибан пауза с учетом ошибок
+                self.safe_delay()
                 
-        except Exception as e:
-            add_error(f"TG send error: {str(e)[:30]}", "telegram")
-            return False
+                # Дополнительная задержка при ошибках
+                if self.consecutive_errors > 0:
+                    time.sleep(self.error_backoff)
+                
+                # Отправка сообщения через Telegram API
+                response = requests.post(
+                    f"https://api.telegram.org/bot{Config.telegram_bot_token}/sendMessage",
+                    data={
+                        "chat_id": chat_id,
+                        "text": message,
+                        "parse_mode": "HTML"
+                    },
+                    timeout=timeoutconnection
+                )
+                
+                if response.status_code == 200:
+                    logging.info(f"✅ Сообщение отправлено в {chat_id}")
+                    self.handle_telegram_error("success")
+                    return True
+                elif response.status_code == 429:
+                    self.handle_telegram_error("429")
+                    if attempt < max_retries - 1:
+                        continue
+                else:
+                    add_error(f"TG send: {response.status_code}", "telegram")
+                    if attempt < max_retries - 1:
+                        time.sleep(2 ** attempt)  # Экспоненциальная задержка
+                        continue
+                    return False
+                    
+            except requests.exceptions.RequestException as e:
+                error_msg = str(e).lower()
+                if "conflict" in error_msg or "getupdates" in error_msg:
+                    self.handle_telegram_error("conflict")
+                    if attempt < max_retries - 1:
+                        continue
+                else:
+                    add_error(f"TG send error: {str(e)[:30]}", "telegram")
+                    if attempt < max_retries - 1:
+                        time.sleep(2 ** attempt)
+                        continue
+                    return False
+            except Exception as e:
+                add_error(f"TG send error: {str(e)[:30]}", "telegram")
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                return False
+        
+        return False
 
 # Global instances
 vinted_antiblock = VintedAntiBlock()
@@ -514,6 +573,9 @@ def scanner_loop():
                     delay += error_delay
                     logging.warning(f"⚠️ Увеличена задержка из-за ошибок: +{error_delay}s")
                 
+                # НОВАЯ ЛОГИКА: Автоматическое самовосстановление в каждом цикле
+                auto_recovery_system()
+                
                 time.sleep(delay)
                 
         except Exception as e:
@@ -531,6 +593,9 @@ def scanner_loop():
 def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
     """Сканирование одного топика с трехуровневой системой защиты"""
     global current_system, last_scan_time
+    
+    # НОВАЯ ЛОГИКА: Проверка самовосстановления перед каждым сканированием
+    auto_recovery_system()
     
     # Проверяем, не сканировали ли мы этот топик слишком недавно
     current_time = time.time()
@@ -1476,6 +1541,49 @@ def auto_recovery_system():
             logging.warning(f"🔄 АВТОМАТИЧЕСКОЕ САМОВОССТАНОВЛЕНИЕ: Переключение с basic на продвинутую")
             current_system = "advanced_no_proxy"
             last_switch_time = time.time()
+    
+    # НОВАЯ ЛОГИКА: Самовосстановление Telegram
+    if telegram_antiblock.consecutive_errors > 10:
+        logging.warning(f"🔄 АВТОМАТИЧЕСКОЕ САМОВОССТАНОВЛЕНИЕ TG: Сброс ошибок (было: {telegram_antiblock.consecutive_errors})")
+        telegram_antiblock.consecutive_errors = 0
+        telegram_antiblock.error_backoff = 1
+    
+    # НОВАЯ ЛОГИКА: Принудительное переключение систем при критических ошибках
+    total_errors = basic_system_errors + advanced_no_proxy_errors + advanced_proxy_errors
+    if total_errors > 20:  # Критический уровень ошибок
+        logging.warning(f"🔄 АВТОМАТИЧЕСКОЕ САМОВОССТАНОВЛЕНИЕ: Критический уровень ошибок ({total_errors})")
+        
+        # Сбрасываем все счетчики ошибок
+        basic_system_errors = 0
+        advanced_no_proxy_errors = 0
+        advanced_proxy_errors = 0
+        
+        # Переключаемся на самую надежную систему
+        if ADVANCED_SYSTEM_AVAILABLE:
+            current_system = "advanced_no_proxy"
+            logging.info(f"🔄 САМОВОССТАНОВЛЕНИЕ: Переключение на advanced_no_proxy")
+        else:
+            current_system = "basic"
+            logging.info(f"🔄 САМОВОССТАНОВЛЕНИЕ: Переключение на basic")
+        
+        last_switch_time = time.time()
+    
+    # НОВАЯ ЛОГИКА: Проверка застревания в одной системе
+    time_in_current_system = time.time() - last_switch_time
+    if time_in_current_system > 1800:  # 30 минут в одной системе
+        logging.warning(f"🔄 АВТОМАТИЧЕСКОЕ САМОВОССТАНОВЛЕНИЕ: Застревание в системе {current_system} ({time_in_current_system/60:.1f} минут)")
+        
+        if current_system == "basic" and ADVANCED_SYSTEM_AVAILABLE:
+            current_system = "advanced_no_proxy"
+            logging.info(f"🔄 САМОВОССТАНОВЛЕНИЕ: Принудительное переключение на advanced_no_proxy")
+        elif current_system == "advanced_no_proxy":
+            current_system = "advanced_proxy"
+            logging.info(f"🔄 САМОВОССТАНОВЛЕНИЕ: Принудительное переключение на advanced_proxy")
+        elif current_system == "advanced_proxy":
+            current_system = "advanced_no_proxy"
+            logging.info(f"🔄 САМОВОССТАНОВЛЕНИЕ: Принудительное переключение обратно на advanced_no_proxy")
+        
+        last_switch_time = time.time()
 
 def signal_handler(signum, frame):
     global bot_running
