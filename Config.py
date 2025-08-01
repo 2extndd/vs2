@@ -21,7 +21,7 @@ proxy_config = None
 # Список топиков и параметров для поиска
 topics = {
     "bags": {
-        "thread_id": 190,
+        "thread_id": 7831,
         "query": {
             'page': '1',
             'per_page': '2',
@@ -35,7 +35,7 @@ topics = {
     },
 
     "bags 2": {
-        "thread_id": 190,
+        "thread_id": 7831,
         "query": {
             'page': '1',
             'per_page': '2',
@@ -63,7 +63,7 @@ topics = {
     },
 
     "Rick Owens": {
-        "thread_id": 275,
+        "thread_id": 7915,
         "query": {
             'page': '1',
             'per_page': '2',
@@ -89,7 +89,7 @@ topics = {
         "exclude_catalog_ids": "26,98,146,139"
     },
     "Isaac Selam + Boris Bidjian": {
-        "thread_id": 294,
+        "thread_id": 7939,
         "query": {
             'page': '1',
             'per_page': '2',
@@ -115,7 +115,7 @@ topics = {
         "exclude_catalog_ids": "26,98,146,139"
     },
     "Raf Simons + ALL": {
-        "thread_id": 305,
+        "thread_id": 7968,
         "query": {
             'page': '1',
             'per_page': '2',
@@ -128,7 +128,7 @@ topics = {
         "exclude_catalog_ids": "26,98,146,139"
     },
     "Alyx": {
-        "thread_id": 315,
+        "thread_id": 7844,
         "query": {
             'page': '1',
             'per_page': '2',
@@ -141,7 +141,7 @@ topics = {
         "exclude_catalog_ids": "26,98,146,139"
     },
     "Misbhv": {
-        "thread_id": 315,
+        "thread_id": 7844,
         "query": {
             'page': '1',
             'per_page': '2',
@@ -219,7 +219,7 @@ topics = {
         "exclude_catalog_ids": "26,98,146,139"
     },
     "JPG + Helmut Lang": {
-        "thread_id": 344,
+        "thread_id": 7972,
         "query": {
             'page': '1',
             'per_page': '2',
@@ -233,7 +233,7 @@ topics = {
     },
 
     "New Rock & Swear": {
-        "thread_id": 348,
+        "thread_id": 7975,
         "query": {
             'page': '1',
             'per_page': '2',
@@ -247,7 +247,7 @@ topics = {
     },
 
     "Dolce&Gabbana верх и аксессуары": {
-        "thread_id": 354,
+        "thread_id": 7987,
         "query": {
             'page': '1',
             'per_page': '2',
