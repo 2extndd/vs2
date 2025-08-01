@@ -39,6 +39,7 @@ scan_mode = "fast"  # "fast" = 5-7s priority, 10-15s normal, "slow" = 15-20s pri
 last_errors = []
 telegram_errors = []
 vinted_errors = []
+system_mode = "auto"  # auto, basic, advanced, proxy, noproxy
 
 # PRIORITY TOPICS - these scan more frequently
 PRIORITY_TOPICS = ["bags", "bags 2"]
@@ -104,6 +105,11 @@ def should_switch_system():
                     logging.info(f"🔄 ПЕРЕКЛЮЧЕНИЕ: advanced_proxy -> advanced_no_proxy (успешность: {success_rate:.1%})")
                     current_system = "advanced_no_proxy"
                     return True
+            # Если нет данных о продвинутой без прокси, но есть успешные запросы, пробуем переключиться
+            elif advanced_no_proxy_success > 0 and advanced_no_proxy_errors < 1:
+                logging.info(f"🔄 ПЕРЕКЛЮЧЕНИЕ: advanced_proxy -> advanced_no_proxy (успешных запросов: {advanced_no_proxy_success})")
+                current_system = "advanced_no_proxy"
+                return True
                     
     return False
 
@@ -675,7 +681,7 @@ def scan_topic(topic_name, topic_data, cookies, session, is_priority=False):
 # Telegram bot commands
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global bot_running, scan_mode, last_errors, telegram_errors, vinted_errors
-    status = "🟢 Running" if bot_running else "�� Stopped"
+    status = "🟢 Running" if bot_running else "🔴 Stopped"
     items_count = len(list_analyzed_items)
     
     mode_emoji = "🐰" if scan_mode == "fast" else "🐌"
@@ -695,6 +701,24 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     anti_info += f"\n🔹 Базовая система: {basic_success}/{basic_requests}"
     anti_info += f"\n🔹 Продвинутая без прокси: {advanced_no_proxy_success}/{advanced_no_proxy_requests}"
     anti_info += f"\n🔹 Продвинутая с прокси: {advanced_proxy_success}/{advanced_proxy_requests}"
+    
+    # Информация о продвинутой системе
+    if ADVANCED_SYSTEM_AVAILABLE:
+        anti_info += f"\n🚀 Продвинутая система:"
+        anti_info += f"\n   📊 HTTP (без прокси): {advanced_no_proxy_success}/{advanced_no_proxy_requests}"
+        anti_info += f"\n   📊 HTTP (с прокси): {advanced_proxy_success}/{advanced_proxy_requests}"
+        
+        # Информация о прокси
+        if hasattr(advanced_system, 'proxies'):
+            active_proxies = len([p for p in advanced_system.proxies if p not in advanced_system.proxy_blacklist])
+            anti_info += f"\n   📡 Прокси: {active_proxies} активных"
+        
+        # Информация об ошибках
+        total_advanced_errors = advanced_no_proxy_errors + advanced_proxy_errors
+        anti_info += f"\n   ⚠️ Ошибок подряд: {total_advanced_errors}/{max_errors_before_switch * 2}"
+        anti_info += f"\n   🔄 Режим: {system_mode}"
+    else:
+        anti_info += f"\n❌ Продвинутая система недоступна"
     
     # Общая успешность
     total_requests = basic_requests + advanced_no_proxy_requests + advanced_proxy_requests
