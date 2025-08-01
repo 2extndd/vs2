@@ -706,7 +706,9 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 advanced_system.refresh_session()
                 advanced_system.consecutive_errors = 0
                 advanced_system.current_delay = 1.0
-                logging.info("🔄 Продвинутая система сброшена")
+                # Сброс к режиму auto без прокси
+                advanced_system.reset_to_auto_mode()
+                logging.info("🔄 Продвинутая система сброшена к режиму auto")
             except Exception as e:
                 logging.error(f"❌ Ошибка сброса продвинутой системы: {e}")
         
@@ -719,6 +721,7 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message = "🔄 Система сброшена:\n"
         message += "✅ Счетчики ошибок очищены\n"
         message += "✅ Продвинутая система перезапущена\n"
+        message += "✅ Режим сброшен к auto (экономия трафика)\n"
         message += "✅ История ошибок очищена\n"
         message += "🔄 Готов к работе!"
         

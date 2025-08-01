@@ -99,9 +99,6 @@ class AdvancedAntiBan:
         # Инициализация прокси
         self._load_proxies()
         
-        # Первоначальная проверка здоровья прокси
-        self._check_proxy_health()
-        
         # Запуск фоновой задачи для периодической проверки прокси
         self._start_background_tasks()
         
@@ -846,9 +843,10 @@ class AdvancedAntiBan:
     
     def _enable_proxy_mode(self):
         """Включение режима прокси"""
-        if self.proxies and not self.current_proxy:
+        if self.proxies:
             self.proxy_mode = "enabled"
-            self._rotate_proxy()
+            if not self.current_proxy:
+                self._rotate_proxy()
             self.proxy_failures = 0
             self.proxy_successes = 0
             logging.info("🔄 Режим прокси включен")
@@ -860,6 +858,25 @@ class AdvancedAntiBan:
         self.proxy_failures = 0
         self.proxy_successes = 0
         logging.info("🚫 Режим прокси отключен")
+    
+    def reset_to_auto_mode(self):
+        """Сброс системы к режиму auto без прокси"""
+        self.proxy_mode = "auto"
+        self.current_proxy = None
+        self.proxy_failures = 0
+        self.proxy_successes = 0
+        self.consecutive_errors = 0
+        self.errors_403 = 0
+        self.errors_429 = 0
+        self.errors_521 = 0
+        self.http_requests = 0
+        self.http_success = 0
+        self.proxy_requests = 0
+        self.proxy_success = 0
+        self.no_proxy_requests = 0
+        self.no_proxy_success = 0
+        self.no_proxy_test_attempts = 0
+        logging.info("🔄 СБРОС СИСТЕМЫ: Режим auto без прокси (экономия трафика)")
     
     def _should_use_proxy(self):
         """Определяет, нужно ли использовать прокси с учетом экономии трафика"""
