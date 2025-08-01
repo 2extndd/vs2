@@ -1263,6 +1263,46 @@ async def topics_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await telegram_antiblock.safe_send_message(update.effective_chat.id, message)
 
+async def threadid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда для проверки актуальных thread_id топиков"""
+    message = "🔍 АКТУАЛЬНЫЕ THREAD_ID ТОПИКОВ:\n\n"
+    
+    # Группируем топики по thread_id
+    thread_groups = {}
+    
+    for topic_name, topic_data in Config.topics.items():
+        thread_id = topic_data.get("thread_id")
+        if thread_id:
+            if thread_id not in thread_groups:
+                thread_groups[thread_id] = []
+            thread_groups[thread_id].append(topic_name)
+    
+    # Выводим информацию по группам
+    for thread_id, topics in thread_groups.items():
+        message += f"📌 Thread ID: {thread_id}\n"
+        message += f"📋 Топики ({len(topics)}):\n"
+        for topic in topics:
+            message += f"  • {topic}\n"
+        message += "\n"
+    
+    # Статистика
+    total_topics = len(Config.topics)
+    topics_with_thread = sum(1 for topic_data in Config.topics.values() if topic_data.get("thread_id"))
+    topics_without_thread = total_topics - topics_with_thread
+    
+    message += f"📊 СТАТИСТИКА:\n"
+    message += f"• Всего топиков: {total_topics}\n"
+    message += f"• С thread_id: {topics_with_thread}\n"
+    message += f"• Без thread_id: {topics_without_thread}\n"
+    message += f"• Уникальных thread_id: {len(thread_groups)}\n\n"
+    
+    message += f"💡 ИНФОРМАЦИЯ:\n"
+    message += f"• Топики с thread_id отправляются в отдельные каналы\n"
+    message += f"• Топики без thread_id отправляются в основной чат\n"
+    message += f"• Для активации топиков нужно 200+ участников в чате\n"
+    
+    await telegram_antiblock.safe_send_message(update.effective_chat.id, message)
+
 async def setup_bot():
     application = Application.builder().token(Config.telegram_bot_token).build()
     
@@ -1278,8 +1318,9 @@ async def setup_bot():
     application.add_handler(CommandHandler("redeploy", redeploy_command))
     application.add_handler(CommandHandler("topics", topics_command))
     
-    # Дополнительные команды (1)
+    # Дополнительные команды (2)
     application.add_handler(CommandHandler("proxy", proxy_command))
+    application.add_handler(CommandHandler("threadid", threadid_command))
     
     return application
 
