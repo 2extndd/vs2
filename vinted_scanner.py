@@ -867,7 +867,16 @@ async def proxy_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if ADVANCED_SYSTEM_AVAILABLE:
         try:
             stats = advanced_system.get_stats()
+            
+            # Статистика трехуровневой системы
             message = "🚀 СТАТУС ПРОДВИНУТОЙ СИСТЕМЫ:\n\n"
+            message += f"🔄 ТЕКУЩАЯ СИСТЕМА: {current_system.upper()}\n"
+            message += f"📊 СТАТИСТИКА СИСТЕМ:\n"
+            message += f"🔹 Базовая система: {basic_success}/{basic_requests}\n"
+            message += f"🔹 Продвинутая без прокси: {advanced_no_proxy_success}/{advanced_no_proxy_requests}\n"
+            message += f"🔹 Продвинутая с прокси: {advanced_proxy_success}/{advanced_proxy_requests}\n\n"
+            
+            # Статистика продвинутой системы
             message += f"📊 HTTP запросы: {stats['http_success']}/{stats['http_requests']}\n"
             message += f"📈 Общая успешность: {stats['success_rate']:.1f}%\n"
             message += f"📡 Прокси: ✅ {stats['proxies_count']} активных\n"
@@ -1108,10 +1117,10 @@ async def traffic_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             stats = advanced_system.get_stats()
             
-            # Расчет экономии трафика
-            total_requests = stats['http_requests']
-            proxy_requests = stats.get('proxy_requests', 0)
-            no_proxy_requests = total_requests - proxy_requests
+            # Расчет экономии трафика на основе трехуровневой системы
+            total_requests = basic_requests + advanced_no_proxy_requests + advanced_proxy_requests
+            proxy_requests = advanced_proxy_requests
+            no_proxy_requests = basic_requests + advanced_no_proxy_requests
             traffic_savings = (no_proxy_requests / total_requests * 100) if total_requests > 0 else 0
             
             # Расчет стоимости
@@ -1127,15 +1136,25 @@ async def traffic_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
             # Статистика по режимам
             message += "🎯 РЕЖИМЫ РАБОТЫ:\n"
-            message += f"📊 Текущий режим: {system_mode}\n"
-            message += f"📈 Успешность: {stats['success_rate']:.1f}%\n"
-            message += f"⚠️ Ошибок подряд: {stats['consecutive_errors']}\n\n"
+            message += f"🔄 Текущая система: {current_system.upper()}\n"
+            message += f"📊 Режим системы: {system_mode}\n"
+            
+            # Общая успешность трехуровневой системы
+            total_success = basic_success + advanced_no_proxy_success + advanced_proxy_success
+            overall_success_rate = (total_success / total_requests * 100) if total_requests > 0 else 0
+            message += f"📈 Успешность: {overall_success_rate:.1f}%\n"
+            
+            # Ошибки трехуровневой системы
+            total_errors = basic_system_errors + advanced_no_proxy_errors + advanced_proxy_errors
+            message += f"⚠️ Ошибок подряд: {total_errors}\n\n"
             
             # Рекомендации
             message += "💡 РЕКОМЕНДАЦИИ:\n"
-            if traffic_savings < 50:
+            if current_system == "basic" and basic_system_errors >= 2:
+                message += "🔧 Рекомендуется: переключение на продвинутую систему\n"
+            elif current_system == "advanced_proxy" and traffic_savings < 50:
                 message += "🔧 Рекомендуется: /recovery force_noproxy\n"
-            elif stats['success_rate'] < 70:
+            elif overall_success_rate < 70:
                 message += "🔄 Рекомендуется: /recovery force_proxy\n"
             else:
                 message += "✅ Система работает оптимально\n"
@@ -1152,7 +1171,29 @@ async def traffic_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             message = f"❌ Ошибка получения статистики трафика: {str(e)[:100]}"
     else:
-        message = "❌ Продвинутая система недоступна\n🔄 Используется базовая система"
+        # Статистика только базовой системы
+        total_requests = basic_requests
+        total_success = basic_success
+        overall_success_rate = (total_success / total_requests * 100) if total_requests > 0 else 0
+        
+        message = "💰 МОНИТОРИНГ ЭКОНОМИИ ТРАФИКА:\n\n"
+        message += f"📊 Общих запросов: {total_requests}\n"
+        message += f"📡 Запросов через прокси: 0\n"
+        message += f"🚫 Запросов без прокси: {total_requests}\n"
+        message += f"💾 Экономия трафика: 100.0%\n"
+        message += f"💰 Сэкономлено средств: ${total_requests * 0.001:.2f}\n\n"
+        
+        message += "🎯 РЕЖИМЫ РАБОТЫ:\n"
+        message += f"🔄 Текущая система: {current_system.upper()}\n"
+        message += f"📊 Режим системы: {system_mode}\n"
+        message += f"📈 Успешность: {overall_success_rate:.1f}%\n"
+        message += f"⚠️ Ошибок подряд: {basic_system_errors}\n\n"
+        
+        message += "💡 РЕКОМЕНДАЦИИ:\n"
+        if basic_system_errors >= 2:
+            message += "🔧 Рекомендуется: продвинутая система недоступна\n"
+        else:
+            message += "✅ Базовая система работает стабильно\n"
     
     await telegram_antiblock.safe_send_message(update.effective_chat.id, message)
 
