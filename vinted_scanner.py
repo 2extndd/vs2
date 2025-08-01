@@ -128,6 +128,34 @@ class TelegramAntiBlock:
         
         self.last_message_time = time.time()
 
+    async def safe_send_message(self, chat_id, message):
+        """Безопасная отправка сообщения с антибаном"""
+        try:
+            # Антибан пауза
+            self.safe_delay()
+            
+            # Отправка сообщения через Telegram API
+            response = requests.post(
+                f"https://api.telegram.org/bot{Config.telegram_bot_token}/sendMessage",
+                data={
+                    "chat_id": chat_id,
+                    "text": message,
+                    "parse_mode": "HTML"
+                },
+                timeout=timeoutconnection
+            )
+            
+            if response.status_code == 200:
+                logging.info(f"✅ Сообщение отправлено в {chat_id}")
+                return True
+            else:
+                add_error(f"TG send: {response.status_code}", "telegram")
+                return False
+                
+        except Exception as e:
+            add_error(f"TG send error: {str(e)[:30]}", "telegram")
+            return False
+
 # Global instances
 vinted_antiblock = VintedAntiBlock()
 telegram_antiblock = TelegramAntiBlock()
@@ -908,16 +936,73 @@ async def recovery_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await telegram_antiblock.safe_send_message(update.effective_chat.id, message)
 
+async def traffic_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Команда /traffic - мониторинг экономии трафика прокси"""
+    if ADVANCED_SYSTEM_AVAILABLE:
+        try:
+            stats = advanced_system.get_stats()
+            
+            # Расчет экономии трафика
+            total_requests = stats['http_requests']
+            proxy_requests = stats.get('proxy_requests', 0)
+            no_proxy_requests = total_requests - proxy_requests
+            traffic_savings = (no_proxy_requests / total_requests * 100) if total_requests > 0 else 0
+            
+            # Расчет стоимости
+            proxy_cost_per_request = 0.001  # Примерная стоимость прокси запроса
+            saved_cost = no_proxy_requests * proxy_cost_per_request
+            
+            message = "💰 МОНИТОРИНГ ЭКОНОМИИ ТРАФИКА:\n\n"
+            message += f"📊 Общих запросов: {total_requests}\n"
+            message += f"📡 Запросов через прокси: {proxy_requests}\n"
+            message += f"🚫 Запросов без прокси: {no_proxy_requests}\n"
+            message += f"💾 Экономия трафика: {traffic_savings:.1f}%\n"
+            message += f"💰 Сэкономлено средств: ${saved_cost:.2f}\n\n"
+            
+            # Статистика по режимам
+            message += "🎯 РЕЖИМЫ РАБОТЫ:\n"
+            message += f"📊 Текущий режим: {system_mode}\n"
+            message += f"📈 Успешность: {stats['success_rate']:.1f}%\n"
+            message += f"⚠️ Ошибок подряд: {stats['consecutive_errors']}\n\n"
+            
+            # Рекомендации
+            message += "💡 РЕКОМЕНДАЦИИ:\n"
+            if traffic_savings < 50:
+                message += "🔧 Рекомендуется: /recovery force_noproxy\n"
+            elif stats['success_rate'] < 70:
+                message += "🔄 Рекомендуется: /recovery force_proxy\n"
+            else:
+                message += "✅ Система работает оптимально\n"
+                
+            # Прогноз экономии
+            daily_requests = 21000  # Примерно в режиме /fast
+            daily_savings = (daily_requests * traffic_savings / 100) * proxy_cost_per_request
+            monthly_savings = daily_savings * 30
+            
+            message += f"\n📈 ПРОГНОЗ ЭКОНОМИИ:\n"
+            message += f"💰 В день: ${daily_savings:.2f}\n"
+            message += f"💰 В месяц: ${monthly_savings:.2f}\n"
+            
+        except Exception as e:
+            message = f"❌ Ошибка получения статистики трафика: {str(e)[:100]}"
+    else:
+        message = "❌ Продвинутая система недоступна\n🔄 Используется базовая система"
+    
+    await telegram_antiblock.safe_send_message(update.effective_chat.id, message)
+
 async def setup_bot():
     application = Application.builder().token(Config.telegram_bot_token).build()
     
-    # Основные команды (6)
+    # Основные команды (9)
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("log", log_command))
     application.add_handler(CommandHandler("restart", restart_command))
     application.add_handler(CommandHandler("fast", fast_command))
     application.add_handler(CommandHandler("slow", slow_command))
     application.add_handler(CommandHandler("recovery", recovery_command))
+    application.add_handler(CommandHandler("traffic", traffic_command))
+    application.add_handler(CommandHandler("system", system_command))
+    application.add_handler(CommandHandler("redeploy", redeploy_command))
     
     # Дополнительные команды (1)
     application.add_handler(CommandHandler("proxy", proxy_command))

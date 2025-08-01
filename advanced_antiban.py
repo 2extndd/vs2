@@ -41,6 +41,10 @@ class AdvancedAntiBan:
         self.errors_521 = 0
         self.consecutive_errors = 0
         
+        # НОВАЯ СТАТИСТИКА ЭКОНОМИИ ТРАФИКА
+        self.proxy_requests = 0
+        self.no_proxy_requests = 0
+        
         # Система прокси
         self.proxies = []
         self.current_proxy = None
@@ -478,10 +482,12 @@ class AdvancedAntiBan:
                 # Обновляем статистику прокси
                 self.current_proxy['requests'] += 1
                 self.proxy_rotation_count += 1
+                self.proxy_requests += 1  # НОВАЯ СТАТИСТИКА
             else:
                 logging.info(f"🔧 Прокси: ❌ Отключен (режим: {self.proxy_mode})")
                 proxy_dict = None
                 self.proxy_rotation_count += 1
+                self.no_proxy_requests += 1  # НОВАЯ СТАТИСТИКА
             
             logging.info(f"🔧 Параметры: {params}")
             logging.info(f"🍪 Cookies: {cookies}")
@@ -693,7 +699,10 @@ class AdvancedAntiBan:
             'proxy_blacklist_count': len(self.proxy_blacklist),
             'proxy_recovery_attempts': self.proxy_recovery_attempts,
             'mode_switch_count': self.mode_switch_count,
-            'last_mode_switch': self.last_mode_switch
+            'last_mode_switch': self.last_mode_switch,
+            # НОВАЯ СТАТИСТИКА ЭКОНОМИИ ТРАФИКА
+            'proxy_requests': self.proxy_requests,
+            'no_proxy_requests': self.no_proxy_requests
         }
         
         return stats
@@ -737,15 +746,29 @@ class AdvancedAntiBan:
         logging.info("🚫 Режим прокси отключен")
     
     def _should_use_proxy(self):
-        """Определяет, нужно ли использовать прокси"""
+        """Определяет, нужно ли использовать прокси с учетом экономии трафика"""
         if self.proxy_mode == "disabled":
             return False
         elif self.proxy_mode == "enabled":
             return True
         else:  # auto mode
-            # Используем прокси, если нет критических ошибок
+            # НОВАЯ ЛОГИКА ЭКОНОМИИ ТРАФИКА
             total_errors = self.errors_403 + self.errors_429 + self.errors_521
-            return total_errors < self.proxy_failure_threshold
+            success_rate = (self.http_success / self.http_requests * 100) if self.http_requests > 0 else 0
+            
+            # Если система работает стабильно без прокси - отключаем прокси для экономии
+            if (success_rate > 80 and 
+                total_errors < 3 and 
+                self.consecutive_errors < 2):
+                logging.info(f"💰 ЭКОНОМИЯ ТРАФИКА: Отключаем прокси (успешность: {success_rate:.1f}%, ошибок: {total_errors})")
+                return False
+            
+            # Если есть проблемы - используем прокси
+            if total_errors >= self.proxy_failure_threshold:
+                logging.warning(f"🚫 Прокси отключены из-за {total_errors} ошибок")
+                return False
+                
+            return True
 
 # Глобальный экземпляр (синглтон)
 _advanced_system_instance = None
