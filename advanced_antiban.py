@@ -79,7 +79,7 @@ class AdvancedAntiBan:
         
         # НОВАЯ СИСТЕМА ПРОВЕРКИ БЕЗ ПРОКСИ
         self.last_proxy_switch_time = time.time()
-        self.proxy_switch_interval = 600  # 10 минут - проверяем работу без прокси каждые 10 минут
+        self.proxy_switch_interval = 60  # 1 минута - проверяем работу без прокси каждую минуту
         self.no_proxy_test_attempts = 0
         self.max_no_proxy_test_attempts = 3  # Максимум 3 попытки проверки без прокси
         
@@ -233,7 +233,7 @@ class AdvancedAntiBan:
         """Проверка возможности работы без прокси"""
         current_time = time.time()
         
-        # Проверяем каждые 10 минут, если используем прокси
+        # Проверяем каждую минуту, если используем прокси
         if (current_time - self.last_proxy_switch_time > self.proxy_switch_interval and 
             self.proxy_mode == "enabled" and 
             self.no_proxy_test_attempts < self.max_no_proxy_test_attempts):
