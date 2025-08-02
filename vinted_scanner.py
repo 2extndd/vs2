@@ -63,11 +63,11 @@ current_system = "basic"  # basic, advanced_no_proxy, advanced_proxy
 basic_system_errors = 0
 advanced_no_proxy_errors = 0
 advanced_proxy_errors = 0
-max_errors_before_switch = 3
+max_errors_before_switch = 2
 last_switch_time = time.time()
-switch_interval = 60  # 60 секунд между попытками переключения
+switch_interval = 30
 
-# Счетчики для статистики
+# СЧЕТЧИКИ ДЛЯ СТАТИСТИКИ
 basic_requests = 0
 basic_success = 0
 advanced_no_proxy_requests = 0
@@ -75,29 +75,43 @@ advanced_no_proxy_success = 0
 advanced_proxy_requests = 0
 advanced_proxy_success = 0
 
+# ПАРАМЕТРЫ ЭФФЕКТИВНОСТИ
+min_success_rate_for_economy = 0.6
+max_errors_for_economy = 1
+economy_check_interval = 45
+recovery_threshold = 15
+stuck_time_threshold = 900
+
 def should_switch_system():
     """Логика переключения трехуровневой системы"""
     global current_system, basic_system_errors, advanced_no_proxy_errors, advanced_proxy_errors
-    global last_switch_time, switch_interval
+    global last_switch_time, switch_interval, min_success_rate_for_economy, max_errors_for_economy, economy_check_interval
     
     current_time = time.time()
     
-    # НОВАЯ ЛОГИКА: Принудительное переключение на продвинутую систему после определенного времени
-    if current_system == "basic" and current_time - last_switch_time >= 300:  # 5 минут
-        logging.info(f"🔄 ПРИНУДИТЕЛЬНОЕ ПЕРЕКЛЮЧЕНИЕ: basic -> advanced_no_proxy (время работы: 5 минут)")
+    # Принудительное переключение на продвинутую систему после 4 минут
+    if current_system == "basic" and current_time - last_switch_time >= 240:
+        logging.info(f"🔄 ПРИНУДИТЕЛЬНОЕ ПЕРЕКЛЮЧЕНИЕ: basic -> advanced_no_proxy (время работы: 4 минуты)")
         current_system = "advanced_no_proxy"
         last_switch_time = current_time
         return True
     
-    # Логика переключения с базовой на продвинутую без прокси
+    # Принудительное переключение с прокси на не прокси через 2 минуты
+    elif current_system == "advanced_proxy" and current_time - last_switch_time >= 120:
+        logging.info(f"🔄 ПРИНУДИТЕЛЬНОЕ ПЕРЕКЛЮЧЕНИЕ: advanced_proxy -> advanced_no_proxy (экономия прокси: 2 минуты)")
+        current_system = "advanced_no_proxy"
+        last_switch_time = current_time
+        return True
+    
+    # Переключение с базовой на продвинутую без прокси
     if current_system == "basic" and basic_system_errors >= max_errors_before_switch:
         logging.info(f"🔄 ПЕРЕКЛЮЧЕНИЕ: basic -> advanced_no_proxy (ошибок: {basic_system_errors})")
         current_system = "advanced_no_proxy"
-        basic_system_errors = 0  # Сбрасываем счетчик ошибок
+        basic_system_errors = 0
         last_switch_time = current_time
         return True
         
-    # Логика переключения с продвинутой без прокси на продвинутую с прокси
+    # Переключение с продвинутой без прокси на продвинутую с прокси
     elif current_system == "advanced_no_proxy" and advanced_no_proxy_errors >= max_errors_before_switch:
         logging.info(f"🔄 ПЕРЕКЛЮЧЕНИЕ: advanced_no_proxy -> advanced_proxy (ошибок: {advanced_no_proxy_errors})")
         current_system = "advanced_proxy"
@@ -105,33 +119,31 @@ def should_switch_system():
         last_switch_time = current_time
         return True
         
-    # Логика переключения обратно на продвинутую без прокси (экономия трафика)
+    # Переключение обратно на продвинутую без прокси (экономия трафика)
     elif current_system == "advanced_proxy":
-        # НОВАЯ ЛОГИКА: Если прокси дают много ошибок, переключаемся обратно на без прокси (немедленно)
+        # Если прокси дают много ошибок, переключаемся обратно на без прокси
         if advanced_proxy_errors >= max_errors_before_switch:
             logging.info(f"🔄 ПЕРЕКЛЮЧЕНИЕ: advanced_proxy -> advanced_no_proxy (много ошибок прокси: {advanced_proxy_errors})")
             current_system = "advanced_no_proxy"
-            advanced_proxy_errors = 0  # Сбрасываем счетчик ошибок прокси
+            advanced_proxy_errors = 0
             last_switch_time = current_time
             return True
         
-        # Проверяем каждую минуту для других условий
-        if current_time - last_switch_time >= switch_interval:
+        # Проверка экономии ресурсов каждые 45 секунд
+        if current_time - last_switch_time >= economy_check_interval:
             last_switch_time = current_time
             
-            # Если продвинутая без прокси работает хорошо, переключаемся обратно
             if advanced_no_proxy_requests > 0:
                 success_rate = advanced_no_proxy_success / advanced_no_proxy_requests
-                if success_rate >= 0.7 and advanced_no_proxy_errors < 2:
-                    logging.info(f"🔄 ПЕРЕКЛЮЧЕНИЕ: advanced_proxy -> advanced_no_proxy (успешность: {success_rate:.1%})")
+                if success_rate >= min_success_rate_for_economy and advanced_no_proxy_errors <= max_errors_for_economy:
+                    logging.info(f"🔄 ПЕРЕКЛЮЧЕНИЕ: advanced_proxy -> advanced_no_proxy (успешность: {success_rate:.1%}, ошибок: {advanced_no_proxy_errors})")
                     current_system = "advanced_no_proxy"
                     return True
-            # Если нет данных о продвинутой без прокси, но есть успешные запросы, пробуем переключиться
-            elif advanced_no_proxy_success > 0 and advanced_no_proxy_errors < 1:
+            elif advanced_no_proxy_success >= 3 and advanced_no_proxy_errors <= max_errors_for_economy:
                 logging.info(f"🔄 ПЕРЕКЛЮЧЕНИЕ: advanced_proxy -> advanced_no_proxy (успешных запросов: {advanced_no_proxy_success})")
                 current_system = "advanced_no_proxy"
                 return True
-                    
+    
     return False
 
 def update_system_stats(system_name, success=True):
@@ -170,47 +182,81 @@ def update_system_stats(system_name, success=True):
 class VintedAntiBlock:
     def __init__(self):
         self.user_agents = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/121.0"
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:122.0) Gecko/20100101 Firefox/122.0",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/121.0.0.0",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15"
         ]
         self.request_count = 0
         self.success_count = 0
         self.total_requests = 0
-
+        self.consecutive_errors = 0
+        self.last_error_time = 0
+    
     def get_headers(self):
+        """Заголовки с дополнительными параметрами"""
         return {
             "User-Agent": random.choice(self.user_agents),
             "Accept": "application/json, text/plain, */*",
-            "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Language": "en-US,en;q=0.9,ru;q=0.8",
+            "Accept-Encoding": "gzip, deflate, br",
             "DNT": "1",
             "Connection": "keep-alive",
-            "Cache-Control": "no-cache"
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin"
         }
-
+    
     def delay(self):
-        """Быстрые задержки 0.5-2 сек"""
+        """Задержки с адаптивной логикой"""
         self.request_count += 1
-        delay = random.uniform(0.5, 2.0)
-        if self.request_count % 10 == 0:
-            delay += random.uniform(2, 5)
-        time.sleep(delay)
-
+        current_time = time.time()
+        
+        base_delay = random.uniform(0.8, 2.5)
+        
+        if self.consecutive_errors > 0:
+            error_multiplier = min(1.5 + (self.consecutive_errors * 0.3), 3.0)
+            base_delay *= error_multiplier
+        
+        if self.request_count % 8 == 0:
+            base_delay += random.uniform(3, 8)
+        
+        time_since_last = current_time - self.last_error_time
+        if time_since_last < 30:
+            base_delay += random.uniform(2, 5)
+        
+        time.sleep(base_delay)
+    
     def handle_errors(self, response):
-        """Обработка ошибок"""
+        """Обработка ошибок с адаптивными задержками"""
+        self.consecutive_errors += 1
+        self.last_error_time = time.time()
+        
         if response.status_code == 429:
-            wait = random.uniform(60, 120)
-            logging.warning(f"Rate limit! Wait {wait:.0f}s")
+            base_wait = 60 + (self.consecutive_errors * 15)
+            wait = random.uniform(base_wait, base_wait + 60)
+            logging.warning(f"Rate limit! Wait {wait:.0f}s (consecutive: {self.consecutive_errors})")
             time.sleep(wait)
             return True
         elif response.status_code in [403, 503]:
-            wait = random.uniform(30, 60)
-            logging.warning(f"Blocked! Wait {wait:.0f}s")
+            base_wait = 30 + (self.consecutive_errors * 10)
+            wait = random.uniform(base_wait, base_wait + 30)
+            logging.warning(f"Blocked! Wait {wait:.0f}s (consecutive: {self.consecutive_errors})")
             time.sleep(wait)
             return True
-        return False
+        elif response.status_code in [500, 502, 504]:
+            wait = random.uniform(10, 30)
+            logging.warning(f"Server error {response.status_code}! Wait {wait:.0f}s")
+            time.sleep(wait)
+            return True
+        else:
+            self.consecutive_errors = 0
+            return False
     
     def get_stats(self):
         """Получение статистики базовой системы"""
@@ -218,7 +264,8 @@ class VintedAntiBlock:
         return {
             'total_requests': self.total_requests,
             'success_count': self.success_count,
-            'success_rate': success_rate
+            'success_rate': success_rate,
+            'consecutive_errors': self.consecutive_errors
         }
 
 # ANTI-BLOCKING SYSTEM FOR TELEGRAM
@@ -1512,53 +1559,45 @@ async def setup_bot():
 def auto_recovery_system():
     """Автоматическая система самовосстановления"""
     global current_system, basic_system_errors, advanced_no_proxy_errors, advanced_proxy_errors, last_switch_time
+    global recovery_threshold, stuck_time_threshold
     
-    # Проверяем критические условия для самовосстановления
     if ADVANCED_SYSTEM_AVAILABLE:
-        # Если много ошибок подряд, сбрасываем счетчики
-        if advanced_system.consecutive_errors > 50:
+        if advanced_system.consecutive_errors > 30:
             logging.warning(f"🔄 АВТОМАТИЧЕСКОЕ САМОВОССТАНОВЛЕНИЕ: Сброс ошибок (было: {advanced_system.consecutive_errors})")
             advanced_system.consecutive_errors = 0
             advanced_system.errors_403 = 0
             advanced_system.errors_429 = 0
             advanced_system.errors_521 = 0
         
-        # Если много заблокированных прокси, очищаем blacklist
         if len(advanced_system.proxy_blacklist) > len(advanced_system.proxy_whitelist) * 2:
             logging.warning(f"🔄 АВТОМАТИЧЕСКОЕ САМОВОССТАНОВЛЕНИЕ: Очистка blacklist прокси")
             advanced_system.proxy_blacklist.clear()
         
-        # Если система застряла в прокси с ошибками, переключаемся на без прокси
-        if current_system == "advanced_proxy" and advanced_proxy_errors > 10:
+        if current_system == "advanced_proxy" and advanced_proxy_errors > 8:
             logging.warning(f"🔄 АВТОМАТИЧЕСКОЕ САМОВОССТАНОВЛЕНИЕ: Переключение с прокси на без прокси")
             current_system = "advanced_no_proxy"
             advanced_proxy_errors = 0
             advanced_system.proxy_mode = "disabled"
             advanced_system.current_proxy = None
         
-        # Если система в basic режиме слишком долго, переключаемся на продвинутую
-        if current_system == "basic" and time.time() - last_switch_time > 600:  # 10 минут
+        if current_system == "basic" and time.time() - last_switch_time > 480:
             logging.warning(f"🔄 АВТОМАТИЧЕСКОЕ САМОВОССТАНОВЛЕНИЕ: Переключение с basic на продвинутую")
             current_system = "advanced_no_proxy"
             last_switch_time = time.time()
     
-    # НОВАЯ ЛОГИКА: Самовосстановление Telegram
-    if telegram_antiblock.consecutive_errors > 10:
+    if telegram_antiblock.consecutive_errors > 8:
         logging.warning(f"🔄 АВТОМАТИЧЕСКОЕ САМОВОССТАНОВЛЕНИЕ TG: Сброс ошибок (было: {telegram_antiblock.consecutive_errors})")
         telegram_antiblock.consecutive_errors = 0
         telegram_antiblock.error_backoff = 1
     
-    # НОВАЯ ЛОГИКА: Принудительное переключение систем при критических ошибках
     total_errors = basic_system_errors + advanced_no_proxy_errors + advanced_proxy_errors
-    if total_errors > 20:  # Критический уровень ошибок
+    if total_errors > recovery_threshold:
         logging.warning(f"🔄 АВТОМАТИЧЕСКОЕ САМОВОССТАНОВЛЕНИЕ: Критический уровень ошибок ({total_errors})")
         
-        # Сбрасываем все счетчики ошибок
         basic_system_errors = 0
         advanced_no_proxy_errors = 0
         advanced_proxy_errors = 0
         
-        # Переключаемся на самую надежную систему
         if ADVANCED_SYSTEM_AVAILABLE:
             current_system = "advanced_no_proxy"
             logging.info(f"🔄 САМОВОССТАНОВЛЕНИЕ: Переключение на advanced_no_proxy")
@@ -1568,9 +1607,8 @@ def auto_recovery_system():
         
         last_switch_time = time.time()
     
-    # НОВАЯ ЛОГИКА: Проверка застревания в одной системе
     time_in_current_system = time.time() - last_switch_time
-    if time_in_current_system > 1800:  # 30 минут в одной системе
+    if time_in_current_system > stuck_time_threshold:
         logging.warning(f"🔄 АВТОМАТИЧЕСКОЕ САМОВОССТАНОВЛЕНИЕ: Застревание в системе {current_system} ({time_in_current_system/60:.1f} минут)")
         
         if current_system == "basic" and ADVANCED_SYSTEM_AVAILABLE:
