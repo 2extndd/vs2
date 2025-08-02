@@ -99,6 +99,9 @@ class AdvancedAntiBan:
         # Инициализация прокси
         self._load_proxies()
         
+        # Отключаем автоматическое тестирование для ускорения запуска
+        # self._test_all_proxies()
+        
         # Запуск фоновой задачи для периодической проверки прокси
         self._start_background_tasks()
         
@@ -292,73 +295,74 @@ class AdvancedAntiBan:
                 
                 # Возвращаемся к прокси, если тест неудачен
                 self.proxy_mode = original_mode
-                logging.info(f"🔄 ВОЗВРАЩАЕМСЯ К ПРОКСИ (стабильность)")
+                logging.info(f"�� ВОЗВРАЩАЕМСЯ К ПРОКСИ (стабильность)")
             else:
                 logging.info(f"⏳ ОТЛОЖЕНА ПРОВЕРКА БЕЗ ПРОКСИ: успешность={success_rate:.1f}%, ошибок={total_errors}")
             
     def _load_proxies(self):
         """Загрузка резидентских прокси"""
         proxy_list = [
-            "uxhsjsf86p:QjN9YOVXOTh404nh@62.112.9.143:12812",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@185.165.240.228:17444",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@175.110.113.246:13714",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@89.38.98.186:13076",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@178.132.0.94:11323",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@89.38.99.28:13221",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@138.201.62.169:12811",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@151.106.6.79:30131",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@185.165.240.228:21766",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@93.190.143.43:13010",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@89.38.96.16:11506",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@62.112.11.191:22539",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@175.110.113.236:13902",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@80.79.6.171:20789",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@185.2.82.37:14258",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@175.110.113.229:14625",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@62.112.11.77:15798",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@89.38.98.64:11709",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@109.236.84.70:15606",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@93.190.139.245:14779",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@93.190.141.37:13168",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@62.112.11.191:16556",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@109.236.86.221:13069",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@190.2.142.111:16028",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@190.2.142.111:12389",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@178.132.0.73:13592",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@175.110.113.236:18731",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@93.190.143.43:11262",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@93.190.141.108:25734",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@62.112.11.191:16718",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@178.132.5.24:14443",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@93.190.141.73:11701",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@62.112.11.41:11738",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@185.185.51.65:17398",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@93.190.141.73:16544",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@190.2.142.111:15697",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@109.236.88.12:13049",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@185.100.232.132:17610",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@89.38.97.115:26853",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@62.112.9.143:13225",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@93.190.141.108:18101",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@178.132.2.28:21691",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@93.190.143.223:12067",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@190.2.131.179:14537",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@185.165.240.228:17597",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@134.119.207.29:22331",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@175.110.113.245:23336",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@62.112.11.191:12003",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@89.38.97.115:28177",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@190.2.142.111:13653",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@175.110.115.54:16672",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@93.190.141.108:25710",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@134.119.219.211:27414",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@93.190.141.73:16723",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@185.132.133.56:20375",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@217.23.5.66:22800",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@89.38.98.64:18438",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@217.23.5.66:11817",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@93.190.139.245:12427",
-            "uxhsjsf86p:QjN9YOVXOTh404nh@178.132.0.94:20019"
+            # Новые прокси из sx-list.org (60 штук)
+            "uxhsjsf86p:QjN9YOVXOTh404nh@190.2.150.45:27349",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@134.119.213.231:12761",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@89.38.97.60:11426",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@93.190.139.25:11496",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@185.165.241.5:21066",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@217.23.5.66:22843",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@91.232.105.90:23520",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@93.190.139.245:21139",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@89.38.99.47:29004",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@217.23.5.66:14386",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@190.2.134.118:17033",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@134.119.205.55:16784",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@134.119.207.29:12309",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@93.190.139.68:14140",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@190.2.150.45:19818",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@175.110.113.236:17823",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@80.79.6.171:14085",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@190.2.142.111:20993",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@89.38.98.64:17483",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@134.119.207.29:15274",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@93.190.142.109:21882",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@93.190.142.109:14954",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@138.201.62.169:23444",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@175.110.113.241:26566",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@185.185.51.65:21114",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@190.2.150.45:17552",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@175.110.113.229:21279",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@175.110.115.54:11544",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@89.39.107.24:11329",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@93.190.142.109:11801",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@89.38.99.47:20934",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@185.185.51.65:11962",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@185.100.232.132:23959",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@190.2.150.45:17726",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@175.110.113.229:27115",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@185.165.241.5:13964",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@93.190.140.109:13396",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@134.119.207.29:18591",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@175.110.113.245:18122",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@134.119.207.29:16213",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@190.2.142.111:14108",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@89.38.98.64:15084",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@109.236.93.23:11621",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@89.38.99.47:13136",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@93.190.139.245:18998",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@175.110.113.229:23095",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@185.185.51.65:19532",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@175.110.113.229:22745",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@178.132.0.94:16002",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@178.132.0.94:16403",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@175.110.113.236:18671",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@185.100.232.163:14789",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@91.229.23.254:12504",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@178.132.0.94:17031",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@151.106.6.79:15097",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@93.190.141.73:24342",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@178.132.5.24:15780",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@185.132.133.56:22542",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@89.39.104.152:16871",
+            "uxhsjsf86p:QjN9YOVXOTh404nh@109.236.88.12:14699"
         ]
         
         for proxy in proxy_list:
@@ -384,6 +388,9 @@ class AdvancedAntiBan:
                 logging.error(f"❌ Ошибка загрузки прокси {proxy}: {e}")
         
         logging.info(f"📊 Загружено прокси: {len(self.proxies)}")
+        
+        # Отключаем автоматическое тестирование для ускорения запуска
+        # self._test_all_proxies()
         
     def _generate_client_profiles(self):
         """Генерация профилей клиентов для кластеризации"""
