@@ -922,7 +922,25 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     anti_info = f"\n📱 Telegram messages: {telegram_antiblock.message_count}"
     
     # ТРЕХУРОВНЕВАЯ СИСТЕМА СТАТУСА
-    anti_info += f"\n🔄 ТЕКУЩАЯ СИСТЕМА: {current_system.upper()}"
+    system_display = current_system.upper()
+    if current_system == "advanced_no_proxy":
+        system_display = "ADVANCED_NO_PROXY (без прокси)"
+    elif current_system == "advanced_proxy":
+        system_display = "ADVANCED_PROXY (с прокси)"
+    elif current_system == "basic":
+        system_display = "BASIC (базовая)"
+    
+    anti_info += f"\n🔄 ТЕКУЩАЯ СИСТЕМА: {system_display}"
+    
+    # Время работы в текущей системе
+    time_in_current_system = time.time() - last_switch_time
+    anti_info += f"\n⏱️ Время в системе: {time_in_current_system/60:.1f} мин"
+    
+    # Информация о переключениях
+    if current_system == "advanced_proxy" and time_in_current_system > 120:
+        anti_info += f"\n⚠️ Принудительное переключение через: {max(0, 120 - time_in_current_system):.0f}с"
+    elif current_system == "basic" and time_in_current_system > 240:
+        anti_info += f"\n⚠️ Принудительное переключение через: {max(0, 240 - time_in_current_system):.0f}с"
     
     # Статистика всех трех систем
     anti_info += f"\n📊 СТАТИСТИКА СИСТЕМ:"
